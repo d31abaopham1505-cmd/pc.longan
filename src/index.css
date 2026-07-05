@@ -1,0 +1,129 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --color-red-650: #dc2626;
+  --color-red-750: #b91c1c;
+  --color-indigo-650: #4f46e5;
+  --color-slate-205: #e2e8f0;
+}
+
+/* Custom styles etc. */
+@keyframes ring-shake {
+  0% { transform: rotate(0); }
+  5% { transform: rotate(10deg); }
+  10% { transform: rotate(-10deg); }
+  15% { transform: rotate(12deg); }
+  20% { transform: rotate(-12deg); }
+  25% { transform: rotate(10deg); }
+  30% { transform: rotate(-10deg); }
+  35% { transform: rotate(8deg); }
+  40% { transform: rotate(-8deg); }
+  45% { transform: rotate(6deg); }
+  50% { transform: rotate(-6deg); }
+  55% { transform: rotate(0); }
+  100% { transform: rotate(0); }
+}
+
+.animate-ring-shake {
+  animation: ring-shake 1.8s ease-in-out infinite;
+  transform-origin: top center;
+}
+
+html, body, #root {
+  height: 100%;
+  font-family: var(--font-sans);
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* Print-only elements are hidden by default on screens */
+.print-only {
+  display: none !important;
+}
+
+/* Print CSS Support for PDF export */
+@media print {
+  * {
+    font-family: "Times New Roman", Times, "Times New Roman (Vietnamese)", Georgia, serif !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  
+  html, body, #root, #app-root-container {
+    background: white !important;
+    background-color: white !important;
+    color: black !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  #app-navigation-sidebar, #app-header, #duty-form-container {
+    display: none !important;
+  }
+
+  #app-main-viewport, #app-viewport-inner {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    display: block !important;
+    background: white !important;
+  }
+
+  #schedule-viewport {
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block !important;
+    grid-column: span 3 / span 3 !important;
+  }
+
+  /* Reset layout configurations for full printing width */
+  .grid {
+    display: block !important;
+  }
+
+  .card-print {
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+    margin-bottom: 20px;
+    padding: 15px !important;
+  }
+
+  /* Format table rendering in print */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: avoid;
+  }
+
+  th, td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 6px 8px !important;
+    color: #1e293b !important;
+  }
+
+  th {
+    background-color: #f1f5f9 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Elegant official borders and break avoids */
+  .border-slate-150 {
+    border-color: #94a3b8 !important;
+  }
+
+  /* Clean up font sizing for compact fits on standard A4 */
+  body {
+    font-size: 10pt !important;
+  }
+}

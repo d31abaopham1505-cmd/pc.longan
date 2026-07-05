@@ -1,0 +1,252 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account profiling and permission schema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "fullName": { "type": "string" },
+        "role": { "type": "string", "enum": ["Admin", "Chỉ huy", "Cán bộ phụ trách"] },
+        "isLocked": { "type": "boolean" },
+        "avatarUrl": { "type": "string" },
+        "dob": { "type": "string" },
+        "rank": { "type": "string" }
+      },
+      "required": ["id", "email", "fullName", "role"]
+    },
+    "Officer": {
+      "title": "Officer",
+      "description": "Personnel officers and firefighters",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string" },
+        "rank": { "type": "string" },
+        "position": { "type": "string" },
+        "unit": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "status": { "type": "string", "enum": ["Đang công tác", "Nghỉ phép", "Đi công tác", "Đi học"] },
+        "kpi": { "type": "number" },
+        "tasksCount": { "type": "number" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "fullName", "rank", "position", "unit"]
+    },
+    "DutySchedule": {
+      "title": "DutySchedule",
+      "description": "Daily duty and shift calendars",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "shift": { "type": "string" },
+        "commanderId": { "type": "string" },
+        "officerIds": { "type": "array" },
+        "vehicles": { "type": "array" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "date", "shift", "commanderId"]
+    },
+    "Facility": {
+      "title": "Facility",
+      "description": "Fire protection inspection target facility",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "ward": { "type": "string" },
+        "category": { "type": "string" },
+        "representative": { "type": "string" },
+        "phone": { "type": "string" },
+        "managementLevel": { "type": "string" },
+        "dangerLevel": { "type": "string" },
+        "status": { "type": "string" },
+        "officerId": { "type": "string" },
+        "sector": { "type": "string" },
+        "industry": { "type": "string" },
+        "dossierNumber": { "type": "string" },
+        "createdDate": { "type": "string" },
+        "lastInspectionDate": { "type": "string" }
+      },
+      "required": ["id", "name", "address", "ward"]
+    },
+    "FireInspection": {
+      "title": "FireInspection",
+      "description": "Fire inspection and hazard logging records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "facilityId": { "type": "string" },
+        "date": { "type": "string" },
+        "type": { "type": "string" },
+        "inspectors": { "type": "array" },
+        "content": { "type": "string" },
+        "result": { "type": "string" },
+        "violations": { "type": "string" },
+        "remedyDeadline": { "type": "string" },
+        "remedyStatus": { "type": "string" },
+        "attachments": { "type": "array" },
+        "fineAmount": { "type": "number" },
+        "appendixIiCategory": { "type": "string" },
+        "industry": { "type": "string" },
+        "sector": { "type": "string" },
+        "address": { "type": "string" },
+        "facilityCategory": { "type": "string" },
+        "officerId": { "type": "string" },
+        "inspectionPlan": { "type": "string" }
+      },
+      "required": ["id", "facilityId", "date", "type", "result", "remedyStatus"]
+    },
+    "FireEquipment": {
+      "title": "FireEquipment",
+      "description": "Fire apparatus and equipment maintenance tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "quantity": { "type": "number" },
+        "status": { "type": "string" },
+        "lastInspectionDate": { "type": "string" },
+        "nextMaintenanceDate": { "type": "string" }
+      },
+      "required": ["id", "name", "category", "quantity", "status"]
+    },
+    "FireProtectionPlan": {
+      "title": "FireProtectionPlan",
+      "description": "Tactical fire protection and defense action plans",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "facilityId": { "type": "string" },
+        "createdDate": { "type": "string" },
+        "approvedDate": { "type": "string" },
+        "rehearsalDate": { "type": "string" },
+        "participants": { "type": "string" },
+        "evaluation": { "type": "string" },
+        "fileUrl": { "type": "string" }
+      },
+      "required": ["id", "name", "facilityId", "createdDate", "approvedDate"]
+    },
+    "DocumentIncoming": {
+      "title": "DocumentIncoming",
+      "description": "Official dispatch files arriving to the region office",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "docNumber": { "type": "string" },
+        "arrivalDate": { "type": "string" },
+        "publisher": { "type": "string" },
+        "summary": { "type": "string" },
+        "assigneeId": { "type": "string" },
+        "deadline": { "type": "string" },
+        "status": { "type": "string" },
+        "fileUrl": { "type": "string" }
+      },
+      "required": ["id", "docNumber", "arrivalDate", "publisher", "summary", "status"]
+    },
+    "DocumentOutgoing": {
+      "title": "DocumentOutgoing",
+      "description": "Official outbound notifications and declarations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "docNumber": { "type": "string" },
+        "publishDate": { "type": "string" },
+        "receiver": { "type": "string" },
+        "summary": { "type": "string" },
+        "authorId": { "type": "string" },
+        "signer": { "type": "string" },
+        "fileUrl": { "type": "string" }
+      },
+      "required": ["id", "docNumber", "publishDate", "receiver", "summary", "signer"]
+    },
+    "ReferenceMaterial": {
+      "title": "ReferenceMaterial",
+      "description": "Legal codes, decrees, and standards documentation reference",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "docNumber": { "type": "string" },
+        "category": { "type": "string" },
+        "publishDate": { "type": "string" },
+        "publisher": { "type": "string" },
+        "scope": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "title", "category", "scope"]
+    },
+    "TaskWork": {
+      "title": "TaskWork",
+      "description": "Regional work coordination tasks and assignments",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "assigneeId": { "type": "string" },
+        "startDate": { "type": "string" },
+        "deadline": { "type": "string" },
+        "priority": { "type": "string" },
+        "status": { "type": "string" },
+        "attachments": { "type": "array" },
+        "resultNotes": { "type": "string" }
+      },
+      "required": ["id", "title", "content", "startDate", "deadline", "priority", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Profiles for admins, officers, and commanders"
+    },
+    "/officers/{officerId}": {
+      "schema": "Officer",
+      "description": "Profiles of officers and responders"
+    },
+    "/schedules/{scheduleId}": {
+      "schema": "DutySchedule",
+      "description": "Regional base 24/7 duty roster calendar schedules"
+    },
+    "/facilities/{facilityId}": {
+      "schema": "Facility",
+      "description": "Commercial and residential facilities properties"
+    },
+    "/inspections/{inspectionId}": {
+      "schema": "FireInspection",
+      "description": "Periodic and emergency inspection audits and logs"
+    },
+    "/equipment/{itemId}": {
+      "schema": "FireEquipment",
+      "description": "Trucks, pumps, specialized safety gears inventory"
+    },
+    "/plans/{planId}": {
+      "schema": "FireProtectionPlan",
+      "description": "Operational tactics and rehearsals documents"
+    },
+    "/incomingDocs/{docId}": {
+      "schema": "DocumentIncoming",
+      "description": "Arrived administrative files dispatch"
+    },
+    "/outgoingDocs/{docId}": {
+      "schema": "DocumentOutgoing",
+      "description": "Delivered regional files dispatch"
+    },
+    "/materials/{materialId}": {
+      "schema": "ReferenceMaterial",
+      "description": "Legal regulations and PCCC reference papers"
+    },
+    "/tasks/{taskId}": {
+      "schema": "TaskWork",
+      "description": "Daily work tasks and collaborative reports"
+    }
+  }
+}

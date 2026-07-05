@@ -1,0 +1,6 @@
+{
+  "name": "QL PCCC & CNCH 2026",
+  "description": "Phần mềm Quản lý Công tác Phòng cháy, chữa cháy và Cứu nạn, cứu hộ năm 2026",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

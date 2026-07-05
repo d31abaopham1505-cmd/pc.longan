@@ -1,0 +1,97 @@
+rules_version = '2';
+service cloudfire.firestore {
+  match /databases/{database}/documents {
+
+    // Global Catch-All Rule: Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        getUserData().role == 'Admin'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Collections: Users
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isLocked']));
+    }
+
+    // Collections: Personnel Officers
+    match /officers/{officerId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Collections: Duty Rosters
+    match /schedules/{scheduleId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Collections: Facilities
+    match /facilities/{facilityId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Collections: Fire Inspections
+    match /inspections/{inspectionId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Collections: Equipment
+    match /equipment/{itemId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Collections: Plans
+    match /plans/{planId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Collections: Incoming Docs
+    match /incomingDocs/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Collections: Outgoing Docs
+    match /outgoingDocs/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Collections: Reference Materials
+    match /materials/{materialId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Collections: Coordination Tasks
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+  }
+}
