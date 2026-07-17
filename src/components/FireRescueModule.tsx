@@ -690,9 +690,6 @@ export default function FireRescueModule({ store }: FireRescueProps) {
             <ShieldAlert className="w-6 h-6 text-red-650" />
             CÔNG TÁC CHỮA CHÁY VÀ CỨU NẠN CỨU HỘ
           </h2>
-          <p className="text-slate-500 text-xs mt-1">
-            Thiết kế phương án dập lửa chủ động, quản lý lịch trình thực tập cứu hộ và kiểm kê khí đài trực chiến phòng quân.
-          </p>
           {syncMessage && (
             <div className="mt-2 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-lg inline-flex items-center gap-1.5 animate-pulse shadow-sm">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />

@@ -136,7 +136,7 @@ export default function DutyScheduleModule({ store }: DutyScheduleModuleProps) {
   const handleSaveSchedule = (e: any) => {
     e.preventDefault();
     if (!formCommanderId) return alert('Vui lòng chọn Chỉ huy trực');
-    if (formOfficerIds.length === 0) return alert('Vui lòng phân công ít nhất một chiến sĩ, cán bộ bám trực');
+    if (formOfficerIds.length === 0) return alert('Vui lòng phân công ít nhất một cán bộ bám trực');
 
     const body: Omit<DutySchedule, 'id'> = {
       date: formDate,
@@ -358,9 +358,7 @@ export default function DutyScheduleModule({ store }: DutyScheduleModuleProps) {
             <CalendarDays className="w-6 h-6 text-red-600" />
             BẢNG PHÂN CÔNG TRỰC
           </h2>
-          <p className="text-slate-500 text-xs mt-1">
-            Thiết lập ca trực Chỉ huy hành chính và kíp xe chữa cháy sẵn sàng tác chiến 24h/7 ngày.
-          </p>
+
           {syncMessage && (
             <div className="mt-2 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-lg inline-flex items-center gap-1.5 animate-pulse shadow-sm">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -419,7 +417,7 @@ export default function DutyScheduleModule({ store }: DutyScheduleModuleProps) {
             className="p-2 border border-slate-200 rounded-lg text-xs"
           >
             <option value="All">--- Lọc theo Cán bộ ---</option>
-            {officers.map(off => (
+            {officers.filter(o => o.position !== 'Chiến sĩ').map(off => (
               <option key={off.id} value={off.id}>{off.rank} {off.fullName} ({off.unit})</option>
             ))}
           </select>
@@ -589,7 +587,7 @@ export default function DutyScheduleModule({ store }: DutyScheduleModuleProps) {
                             <thead className="bg-slate-50/70 text-slate-500 font-extrabold uppercase text-[10px] tracking-wider">
                               <tr>
                                 <th scope="col" className="px-3 py-2 text-center w-12 border-b border-slate-150">STT</th>
-                                <th scope="col" className="px-3 py-2 border-b border-slate-150">Tên cán bộ chiến sĩ</th>
+                                <th scope="col" className="px-3 py-2 border-b border-slate-150">Tên cán bộ</th>
                                 <th scope="col" className="px-3 py-2 border-b border-slate-150">Chức vụ</th>
                                 <th scope="col" className="px-3 py-2 border-b border-slate-150">Số điện thoại</th>
                               </tr>
@@ -767,7 +765,7 @@ export default function DutyScheduleModule({ store }: DutyScheduleModuleProps) {
                           <thead className="bg-slate-50/70 text-slate-500 font-extrabold uppercase text-[9px] tracking-wider">
                             <tr>
                               <th scope="col" className="px-2 py-1.5 text-center w-10 border-b border-slate-150">STT</th>
-                              <th scope="col" className="px-2 py-1.5 border-b border-slate-150">Tên cán bộ chiến sĩ</th>
+                              <th scope="col" className="px-2 py-1.5 border-b border-slate-150">Tên cán bộ</th>
                               <th scope="col" className="px-2 py-1.5 border-b border-slate-150">Chức vụ</th>
                               <th scope="col" className="px-2 py-1.5 border-b border-slate-150">Số điện thoại</th>
                             </tr>
@@ -886,16 +884,16 @@ export default function DutyScheduleModule({ store }: DutyScheduleModuleProps) {
                     className="w-full p-2 border border-slate-200 rounded-lg text-xs"
                   >
                     <option value="">-- Chọn Chỉ huy --</option>
-                    {officers.filter(o => o.status === 'Đang công tác' || o.status === 'Đi công tác').map(o => (
+                    {officers.filter(o => (o.status === 'Đang công tác' || o.status === 'Đi công tác') && o.position !== 'Chiến sĩ').map(o => (
                       <option key={o.id} value={o.id}>{o.rank} {o.fullName} ({o.position})</option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-slate-600 font-bold mb-1">Cán bộ, chiến sĩ hỗ trợ tác chiến *</label>
+                  <label className="block text-slate-600 font-bold mb-1">Cán bộ hỗ trợ tác chiến *</label>
                   <div className="border border-slate-200 rounded-lg max-h-36 overflow-y-auto p-2.5 space-y-1.5" id="schedule-officers-checkboxes">
-                    {officers.filter(o => o.status === 'Đang công tác' || o.status === 'Đi công tác').map(o => (
+                    {officers.filter(o => (o.status === 'Đang công tác' || o.status === 'Đi công tác') && o.position !== 'Chiến sĩ').map(o => (
                       <label key={o.id} className="flex items-center gap-2 cursor-pointer font-medium hover:text-red-650">
                         <input
                           id={`officer-checkbox-${o.id}`}

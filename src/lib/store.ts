@@ -182,7 +182,13 @@ export function usePCCCStore() {
 
   useEffect(() => {
     localStorage.setItem('pccc_tasks', JSON.stringify(tasks));
-  }, [tasks]);
+    // Sync to Express backend server
+    fetch('/api/sync-tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tasks, officers })
+    }).catch(err => console.warn('API sync-tasks is not active yet:', err));
+  }, [tasks, officers]);
 
   // Firestore Real-time Synchronization (If configured)
   useEffect(() => {

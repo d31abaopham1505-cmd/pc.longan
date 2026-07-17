@@ -9,7 +9,7 @@ import {
   FileDown, Printer, ShieldCheck, Flame, Users, Calendar, 
   AlertTriangle, CheckSquare, Award, BookOpen, Search,
   Plus, Edit, Trash2, Save, FileText, ClipboardList, TrendingUp, X,
-  RefreshCw, CheckCircle2
+  RefreshCw, CheckCircle2, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 interface ReportModuleProps {
@@ -63,6 +63,7 @@ interface EvaluatedKpiTask {
   speedFactor: number;   // e.g. 1.0 = Đảm bảo (100%), 0.75 = 75% Trễ hạn/Nhắc nhở 1 lần, 0.5 = 50%
   qualityNote: string;   // e.g. "Đảm bảo", "Đảm bảo vượt mức", etc.
   speedNote: string;     // e.g. "Đảm bảo", "Chậm 01 lần", etc.
+  notes?: string;
 }
 
 const DEFAULT_PERSONAL_PLANS: PersonalPlan[] = [
@@ -176,14 +177,66 @@ export default function ReportModule({ store }: ReportModuleProps) {
     equipment, plans, incomingDocs, outgoingDocs, tasks, schedules
   } = store;
 
+  // Lọc chỉ hiển thị danh sách cán bộ, chỉ huy đội, bỏ chiến sĩ
+  const activeOfficers = officers.filter(o => o.position !== 'Chiến sĩ');
 
-  // Selected statistics subtab (replaces original reportType)
-  const [reportType, setReportType] = useState<'kpi' | 'facilities' | 'rescue' | 'documents'>('kpi');
+  // Selected statistics subtab
   const [subTab, setSubTab] = useState<'plans' | 'kpi-class'>('plans');
+
+  // Month-by-month statistics state
+  const [selectedStatsYear, setSelectedStatsYear] = useState<number>(2026);
+  const [selectedStatsMonth, setSelectedStatsMonth] = useState<number>(6);
+  const [squadSelectedMonth, setSquadSelectedMonth] = useState<number>(0);
+  const [statsViewMode, setStatsViewMode] = useState<'summary' | 'detail'>('summary');
+  const [statsOfficerId, setStatsOfficerId] = useState<string>('');
+  const [statsEValue, setStatsEValue] = useState<number>(30);
+  const [expandedMonths, setExpandedMonths] = useState<Record<number, boolean>>({ 6: true });
+
+  const toggleMonth = (month: number) => {
+    setExpandedMonths(prev => ({
+      ...prev,
+      [month]: !prev[month]
+    }));
+  };
+
+  const expandAllMonths = () => {
+    const all: Record<number, boolean> = {};
+    for (let i = 1; i <= 12; i++) {
+      all[i] = true;
+    }
+    setExpandedMonths(all);
+  };
+
+  const collapseAllMonths = () => {
+    setExpandedMonths({});
+  };
+
+  // Chọn cán bộ hoạt động đầu tiên làm mặc định cho stats panel
+  useEffect(() => {
+    if (!statsOfficerId && activeOfficers.length > 0) {
+      setStatsOfficerId(activeOfficers[0].id);
+    }
+  }, [activeOfficers, statsOfficerId]);
 
   // KPI Classification State Management
   const [selectedKpiOfficerId, setSelectedKpiOfficerId] = useState<string | null>(null);
+
+  // Chọn cán bộ hoạt động đầu tiên làm mặc định nếu chưa chọn
+  useEffect(() => {
+    if (!selectedKpiOfficerId && activeOfficers.length > 0) {
+      setSelectedKpiOfficerId(activeOfficers[0].id);
+    }
+  }, [activeOfficers, selectedKpiOfficerId]);
   const [kpiEValue, setKpiEValue] = useState<number>(30); // E.g., max 30 points as per guideline
+  const [officerEValues, setOfficerEValues] = useState<Record<string, number>>(() => {
+    const cached = localStorage.getItem('pccc_officer_e_values');
+    return cached ? JSON.parse(cached) : {};
+  });
+
+  useEffect(() => {
+    localStorage.setItem('pccc_officer_e_values', JSON.stringify(officerEValues));
+  }, [officerEValues]);
+
   const [officerKpiTasks, setOfficerKpiTasks] = useState<Record<string, EvaluatedKpiTask[]>>(() => {
     const cached = localStorage.getItem('pccc_officer_kpi_tasks');
     return cached ? JSON.parse(cached) : {};
@@ -208,17 +261,22 @@ export default function ReportModule({ store }: ReportModuleProps) {
     localStorage.setItem('pccc_officer_kpi_tasks', JSON.stringify(officerKpiTasks));
   }, [officerKpiTasks]);
 
-  const getKpiTasksForOfficer = (officerId: string): EvaluatedKpiTask[] => {
+  const getKpiTasksForOfficer = (officerId: string, year?: number, month?: number): EvaluatedKpiTask[] => {
+    const key = (year && month) ? `${officerId}-${year}-${month}` : officerId;
+    if (officerKpiTasks[key] && officerKpiTasks[key].length > 0) {
+      return officerKpiTasks[key];
+    }
+    // Fallback to just officerId if defined
     if (officerKpiTasks[officerId] && officerKpiTasks[officerId].length > 0) {
       return officerKpiTasks[officerId];
     }
-    // Return standard default tasks representing Page 16 of guidance PDF
+    // Return standard default tasks representing Page 16 of guidance PDF / matching the image
     return [
-      { id: '1', name: 'Họp đội định kỳ, báo kết quả thực hiện công tác trong tuần', product: 'Công văn', scorePerProduct: 10, assignedQty: 5, completedQty: 5, qualityFactor: 1.0, speedFactor: 1.0, qualityNote: 'Đảm bảo', speedNote: 'Đảm bảo' },
-      { id: '2', name: 'Đi học bổ túc nghiệp vụ PCCC & CNCH ban đêm', product: 'Báo cáo', scorePerProduct: 15, assignedQty: 3, completedQty: 3, qualityFactor: 1.0, speedFactor: 1.0, qualityNote: 'Đảm bảo', speedNote: 'Đảm bảo' },
-      { id: '3', name: 'Huấn luyện nghiệp vụ an toàn PCCC, rà soát kết quả', product: 'Tờ trình', scorePerProduct: 20, assignedQty: 3, completedQty: 3, qualityFactor: 1.1, speedFactor: 1.0, qualityNote: 'Đảm bảo vượt mức', speedNote: 'Đảm bảo' },
-      { id: '4', name: 'Xây dựng phương án phòng chống cháy nổ bãi xe', product: 'Thông tư', scorePerProduct: 90, assignedQty: 1, completedQty: 1, qualityFactor: 1.0, speedFactor: 1.0, qualityNote: 'Đảm bảo', speedNote: 'Đảm bảo' },
-      { id: '5', name: 'Số hóa, sắp xếp hồ sơ an toàn PCCC các cơ sở địa bàn', product: 'Quyết định', scorePerProduct: 90, assignedQty: 1, completedQty: 1, qualityFactor: 0.75, speedFactor: 1.0, qualityNote: 'Chỉnh sửa 01 lần', speedNote: 'Đảm bảo' }
+      { id: '1', name: 'Nhiệm vụ 1', product: 'Công văn', scorePerProduct: 10, assignedQty: 5, completedQty: 5, qualityFactor: 1.0, speedFactor: 1.0, qualityNote: 'Đảm bảo', speedNote: 'Đảm bảo' },
+      { id: '2', name: 'Nhiệm vụ 2', product: 'Báo cáo', scorePerProduct: 15, assignedQty: 3, completedQty: 3, qualityFactor: 1.0, speedFactor: 1.0, qualityNote: 'Đảm bảo', speedNote: 'Đảm bảo' },
+      { id: '3', name: 'Nhiệm vụ 3', product: 'Tờ trình', scorePerProduct: 20, assignedQty: 3, completedQty: 3, qualityFactor: 1.1, speedFactor: 1.0, qualityNote: 'Đảm bảo vượt mức', speedNote: 'Đảm bảo' },
+      { id: '4', name: 'Nhiệm vụ 4', product: 'Thông tư', scorePerProduct: 90, assignedQty: 1, completedQty: 1, qualityFactor: 1.0, speedFactor: 1.0, qualityNote: 'Đảm bảo', speedNote: 'Đảm bảo' },
+      { id: '5', name: 'Nhiệm vụ 5', product: 'Quy định', scorePerProduct: 90, assignedQty: 1, completedQty: 1, qualityFactor: 0.75, speedFactor: 1.0, qualityNote: 'Chỉnh sửa 01 lần', speedNote: 'Đảm bảo' }
     ];
   };
 
@@ -319,7 +377,7 @@ export default function ReportModule({ store }: ReportModuleProps) {
   const [personalPlanIdToDelete, setPersonalPlanIdToDelete] = useState<string | null>(null);
 
   // Computations for overall summary dashboard counters
-  const totalOfficers = officers.length;
+  const totalOfficers = activeOfficers.length;
   const activeInspections = inspections.length;
   const totalCompletedTasks = tasks.filter(t => t.status === 'Hoàn thành').length;
   const overduedTasks = tasks.filter(t => t.status === 'Quá hạn').length;
@@ -365,7 +423,7 @@ export default function ReportModule({ store }: ReportModuleProps) {
   };
 
   // Recharts calculations
-  const officerKpiData = officers.map(o => ({
+  const officerKpiData = activeOfficers.map(o => ({
     name: o.fullName.split(' ').pop(),
     'Điểm KPI': o.kpi,
     'Số công việc': tasks.filter(t => t.assigneeId === o.id).length
@@ -661,7 +719,7 @@ export default function ReportModule({ store }: ReportModuleProps) {
       }
 
       // 2. Individual officers in order of store.officers list
-      officers.forEach(officer => {
+      activeOfficers.forEach(officer => {
         const officerPlans = dayPlans.filter(p => p.officerId === officer.id);
         if (officerPlans.length > 0) {
           executorGroups.push({
@@ -910,7 +968,7 @@ export default function ReportModule({ store }: ReportModuleProps) {
       }
 
       // 2. Individual officers in order of store.officers list
-      officers.forEach(officer => {
+      activeOfficers.forEach(officer => {
         const officerPlans = dayPlans.filter(p => p.officerId === officer.id);
         if (officerPlans.length > 0) {
           executorGroups.push({
@@ -1210,6 +1268,165 @@ export default function ReportModule({ store }: ReportModuleProps) {
     return matchesSearch && matchesStatus;
   });
 
+  // --- KPI Statistics Panel Helpers ---
+  const handleUpdateTaskField = (officerId: string, year: number, month: number, taskId: string, field: keyof EvaluatedKpiTask, value: any) => {
+    const key = `${officerId}-${year}-${month}`;
+    const statsTasks = getKpiTasksForOfficer(officerId, year, month);
+    const updatedTasks = statsTasks.map(t => {
+      if (t.id === taskId) {
+        const updated = { ...t, [field]: value };
+        // Auto update descriptions
+        if (field === 'qualityFactor') {
+          if (value === 1.1) updated.qualityNote = 'Đảm bảo vượt mức';
+          else if (value === 1.0) updated.qualityNote = 'Đảm bảo';
+          else if (value === 0.75) updated.qualityNote = 'Chỉnh sửa 01 lần';
+          else if (value === 0.5) updated.qualityNote = 'Chỉnh sửa 02 lần';
+          else if (value === 0.0) updated.qualityNote = 'Không đạt';
+        }
+        if (field === 'speedFactor') {
+          if (value === 1.0) updated.speedNote = 'Đảm bảo';
+          else if (value === 0.75) updated.speedNote = 'Chậm 01 lần';
+          else if (value === 0.5) updated.speedNote = 'Chậm 02 lần';
+          else if (value === 0.0) updated.speedNote = 'Trễ hạn';
+        }
+        return updated;
+      }
+      return t;
+    });
+    setOfficerKpiTasks(prev => ({
+      ...prev,
+      [key]: updatedTasks
+    }));
+  };
+
+  const handleAddStatsTask = (officerId: string, year: number, month: number) => {
+    const key = `${officerId}-${year}-${month}`;
+    const statsTasks = getKpiTasksForOfficer(officerId, year, month);
+    const newTask: EvaluatedKpiTask = {
+      id: String(Date.now()),
+      name: 'Nhiệm vụ mới ' + (statsTasks.length + 1),
+      product: 'Báo cáo',
+      scorePerProduct: 20,
+      assignedQty: 1,
+      completedQty: 1,
+      qualityFactor: 1.0,
+      speedFactor: 1.0,
+      qualityNote: 'Đảm bảo',
+      speedNote: 'Đảm bảo'
+    };
+    setOfficerKpiTasks(prev => ({
+      ...prev,
+      [key]: [...statsTasks, newTask]
+    }));
+  };
+
+  const handleDeleteStatsTask = (officerId: string, year: number, month: number, taskId: string) => {
+    const key = `${officerId}-${year}-${month}`;
+    const statsTasks = getKpiTasksForOfficer(officerId, year, month);
+    setOfficerKpiTasks(prev => ({
+      ...prev,
+      [key]: statsTasks.filter(t => t.id !== taskId)
+    }));
+  };
+
+  const handleResetStatsTasks = (officerId: string, year: number, month: number) => {
+    const key = `${officerId}-${year}-${month}`;
+    setOfficerKpiTasks(prev => {
+      const copy = { ...prev };
+      delete copy[key];
+      return copy;
+    });
+  };
+
+  const getAnnualStatsForOfficer = (officerId: string, year: number) => {
+    return Array.from({ length: 12 }, (_, i) => {
+      const month = i + 1;
+      const monthTasks = getKpiTasksForOfficer(officerId, year, month);
+
+      let totalAssignedScore = 0;
+      let totalQuantityScore = 0;
+      let totalQualityScore = 0;
+      let totalSpeedScore = 0;
+
+      monthTasks.forEach(task => {
+        const rowAssigned = task.assignedQty * task.scorePerProduct;
+        const rowCompleted = task.completedQty * task.scorePerProduct;
+        const rowQuality = rowCompleted * task.qualityFactor;
+        const rowSpeed = rowCompleted * task.speedFactor;
+
+        totalAssignedScore += rowAssigned;
+        totalQuantityScore += rowCompleted;
+        totalQualityScore += rowQuality;
+        totalSpeedScore += rowSpeed;
+      });
+
+      const A = totalAssignedScore > 0 ? (totalQuantityScore / totalAssignedScore) : 1;
+      const B = totalAssignedScore > 0 ? (totalQualityScore / totalAssignedScore) : 1;
+      const C = totalAssignedScore > 0 ? (totalSpeedScore / totalAssignedScore) : 1;
+
+      const kpiVal = totalAssignedScore > 0 ? (((A + B + C) / 3) * 100) : 100;
+      const kpiRounded = parseFloat(kpiVal.toFixed(2));
+      const eVal = 30; // general criterion score
+      const totalScore = eVal + kpiRounded * 0.7;
+
+      let classification = 'Không hoàn thành';
+      if (totalScore >= 90) classification = 'Xuất sắc';
+      else if (totalScore >= 70) classification = 'Tốt';
+      else if (totalScore >= 50) classification = 'Hoàn thành';
+
+      return {
+        month,
+        totalAssignedScore,
+        totalQuantityScore,
+        totalQualityScore,
+        totalSpeedScore,
+        A,
+        B,
+        C,
+        kpi: kpiRounded,
+        e: eVal,
+        totalScore,
+        classification
+      };
+    });
+  };
+
+  const getKpiForOfficerLocal = (officerId: string, year: number, month: number): number => {
+    if (month === 0) {
+      const annualData = getAnnualStatsForOfficer(officerId, year);
+      if (annualData.length === 0) return 100;
+      let totalKpiSum = 0;
+      annualData.forEach(row => {
+        totalKpiSum += row.kpi;
+      });
+      return parseFloat((totalKpiSum / annualData.length).toFixed(2));
+    } else {
+      const statsTasks = getKpiTasksForOfficer(officerId, year, month);
+      let totalAssignedScore = 0;
+      let totalQuantityScore = 0;
+      let totalQualityScore = 0;
+      let totalSpeedScore = 0;
+
+      statsTasks.forEach(task => {
+        const rowAssigned = task.assignedQty * task.scorePerProduct;
+        const rowCompleted = task.completedQty * task.scorePerProduct;
+        const rowQuality = rowCompleted * task.qualityFactor;
+        const rowSpeed = rowCompleted * task.speedFactor;
+
+        totalAssignedScore += rowAssigned;
+        totalQuantityScore += rowCompleted;
+        totalQualityScore += rowQuality;
+        totalSpeedScore += rowSpeed;
+      });
+
+      const A = totalAssignedScore > 0 ? (totalQuantityScore / totalAssignedScore) : 1;
+      const B = totalAssignedScore > 0 ? (totalQualityScore / totalAssignedScore) : 1;
+      const C = totalAssignedScore > 0 ? (totalSpeedScore / totalAssignedScore) : 1;
+
+      const computedKpi = ((A + B + C) / 3) * 100;
+      return parseFloat(computedKpi.toFixed(2));
+    }
+  };
 
 
   return (
@@ -1272,7 +1489,7 @@ export default function ReportModule({ store }: ReportModuleProps) {
               }`}
             >
               <TrendingUp className="w-4 h-4" />
-              Phân loại theo KPI
+              Phân loại KPI
             </button>
           </div>
         </div>
@@ -1343,7 +1560,7 @@ export default function ReportModule({ store }: ReportModuleProps) {
                   className="p-1.5 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 font-semibold"
                 >
                   <option value="">Tất cả cán bộ</option>
-                  {officers.map(o => (
+                  {activeOfficers.map(o => (
                     <option key={o.id} value={o.id}>
                       {o.rank} {o.fullName}
                     </option>
@@ -1654,7 +1871,7 @@ export default function ReportModule({ store }: ReportModuleProps) {
                       className="w-full p-2 border border-slate-200 rounded-lg text-xs font-semibold"
                       required
                     >
-                      {officers.map(o => (
+                      {activeOfficers.map(o => (
                         <option key={o.id} value={o.id}>
                           {o.rank} {o.fullName} ({o.unit})
                         </option>
@@ -1799,7 +2016,7 @@ export default function ReportModule({ store }: ReportModuleProps) {
               <div className="flex justify-between items-start">
                 <div>
                   <span className="text-slate-500 text-[10.5px] uppercase tracking-wider font-extrabold block">NHÓM 1: ĐÁP ỨNG TỐT TRỞ LÊN</span>
-                  <strong className="text-emerald-800 font-mono text-2xl">{officers.filter(o => (o.kpi || 0) >= 70).length} Cán bộ</strong>
+                  <strong className="text-emerald-800 font-mono text-2xl">{activeOfficers.filter(o => getKpiForOfficerLocal(o.id, selectedStatsYear, selectedStatsMonth) >= 70).length} Cán bộ</strong>
                 </div>
                 <span className="px-2 py-0.5 bg-emerald-500 text-white rounded font-mono text-[10px] font-bold">KPI 70 - 100</span>
               </div>
@@ -1810,7 +2027,7 @@ export default function ReportModule({ store }: ReportModuleProps) {
               <div className="flex justify-between items-start">
                 <div>
                   <span className="text-slate-500 text-[10.5px] uppercase tracking-wider font-extrabold block">NHÓM 2: ĐÁP ỨNG YÊU CẦU</span>
-                  <strong className="text-amber-800 font-mono text-2xl">{officers.filter(o => (o.kpi || 0) >= 50 && (o.kpi || 0) < 70).length} Cán bộ</strong>
+                  <strong className="text-amber-800 font-mono text-2xl">{activeOfficers.filter(o => { const kpi = getKpiForOfficerLocal(o.id, selectedStatsYear, selectedStatsMonth); return kpi >= 50 && kpi < 70; }).length} Cán bộ</strong>
                 </div>
                 <span className="px-2 py-0.5 bg-amber-500 text-white rounded font-mono text-[10px] font-bold">KPI 50 - 69</span>
               </div>
@@ -1821,7 +2038,7 @@ export default function ReportModule({ store }: ReportModuleProps) {
               <div className="flex justify-between items-start">
                 <div>
                   <span className="text-slate-500 text-[10.5px] uppercase tracking-wider font-extrabold block">NHÓM 3: CHƯA ĐÁP ỨNG</span>
-                  <strong className="text-red-800 font-mono text-2xl">{officers.filter(o => (o.kpi || 0) < 50).length} Cán bộ</strong>
+                  <strong className="text-red-800 font-mono text-2xl">{activeOfficers.filter(o => getKpiForOfficerLocal(o.id, selectedStatsYear, selectedStatsMonth) < 50).length} Cán bộ</strong>
                 </div>
                 <span className="px-2 py-0.5 bg-red-500 text-white rounded font-mono text-[10px] font-bold">KPI &lt; 50</span>
               </div>
@@ -1829,855 +2046,1917 @@ export default function ReportModule({ store }: ReportModuleProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left Column: Interactive lists of officers with KPI classification */}
-            <div className="lg:col-span-1 space-y-3">
-              <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider mb-2">QUÂN SỐ ĐƠN VỊ & CHỈ SỐ KPI</h4>
-              <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-                {officers.map(off => {
-                  const kpiVal = off.kpi || 0;
-                  const isExcellent = kpiVal >= 70;
-                  const isAverage = kpiVal >= 50 && kpiVal < 70;
-                  
-                  let groupLabel = 'Nhóm 3 (Chưa đạt)';
-                  let groupColor = 'bg-red-50 border-red-200 text-red-750';
-                  if (isExcellent) {
-                    groupLabel = 'Nhóm 1 (Tốt trở lên)';
-                    groupColor = 'bg-emerald-50 border-emerald-250 text-emerald-800';
-                  } else if (isAverage) {
-                    groupLabel = 'Nhóm 2 (Đạt yêu cầu)';
-                    groupColor = 'bg-amber-50 border-amber-250 text-amber-800';
-                  }
-
-                  const matchesSelected = selectedKpiOfficerId === off.id;
-
-                  return (
-                    <div
-                      key={off.id}
-                      onClick={() => {
-                        setSelectedKpiOfficerId(off.id);
-                        setIsAddingKpiRow(false);
-                      }}
-                      className={`p-4 rounded-xl border cursor-pointer hover:bg-slate-50 transition-all ${
-                        matchesSelected ? 'border-red-500 ring-2 ring-red-500/10 bg-red-50/5' : 'border-slate-150 bg-white'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start gap-1">
-                        <div>
-                          <strong className="text-sm font-extrabold text-slate-800 tracking-tight">{off.fullName}</strong>
-                          <span className="text-[11px] text-slate-500 dev-details block mt-0.5">{off.rank} • {off.position}</span>
-                          <span className="text-[11px] text-slate-400 block">{off.unit}</span>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-sm font-black font-mono text-red-650 block">{kpiVal}%</span>
-                          <span className="text-[10px] text-slate-400 font-medium block">Hệ số KPI</span>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-between items-center mt-3 pt-2.5 border-t border-slate-50">
-                        <span className={`px-2 py-0.5 border text-[9.5px] font-bold rounded uppercase ${groupColor}`}>
-                          {groupLabel}
-                        </span>
-                        <span className="text-blue-600 hover:text-blue-700 text-[11px] font-extrabold flex items-center gap-0.5">
-                          Chi tiết đánh giá &rarr;
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+      <div className="space-y-6 pt-6 border-t border-slate-100" id="reports-statistics-summary">
+        {/* Header section with high-end typography and description */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-150 pb-4 gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Award className="w-5.5 h-5.5 text-red-650" />
+              <h3 className="text-base font-extrabold text-slate-800 uppercase tracking-tight">
+                Thống kê & Tổng hợp Điểm KPI Cán bộ, Chỉ huy
+              </h3>
+            </div>
+            <p className="text-slate-500 text-xs font-medium">
+              Báo cáo hiệu suất công tác, chấm điểm tự động và tổng hợp xếp loại thi đua theo Hướng dẫn số 20-HD/ĐUCA
+            </p>
+          </div>
+          
+          {/* Main Selectors for Officer and Year */}
+          <div className="flex flex-wrap items-center gap-3 no-print">
+            <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
+              <Users className="w-4 h-4 text-slate-400" />
+              <span className="text-xs font-bold text-slate-600">Cán bộ:</span>
+              <select
+                value={statsOfficerId}
+                onChange={(e) => setStatsOfficerId(e.target.value)}
+                className="p-1 text-xs bg-white border border-slate-200 rounded-md font-bold text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-red-500 min-w-[180px]"
+              >
+                {activeOfficers.map(o => (
+                  <option key={o.id} value={o.id}>
+                    {o.position} - {o.fullName}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {/* Right Column: Dynamic evaluated spreadsheet representing page 16 sample */}
-            <div className="lg:col-span-2">
-              {selectedKpiOfficerId ? (
-                (() => {
-                  const targetOfficer = officers.find(o => o.id === selectedKpiOfficerId);
-                  if (!targetOfficer) return null;
+            <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
+              <Calendar className="w-4 h-4 text-slate-400" />
+              <span className="text-xs font-bold text-slate-600">Năm:</span>
+              <select
+                value={selectedStatsYear}
+                onChange={(e) => setSelectedStatsYear(parseInt(e.target.value))}
+                className="p-1 text-xs bg-white border border-slate-200 rounded-md font-bold text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-red-500"
+              >
+                {Array.from({ length: 51 }, (_, i) => 2026 + i).map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
 
-                  const tasksList = getKpiTasksForOfficer(targetOfficer.id);
+        {/* Month Selector Buttons Bar */}
+        <div className="no-print">
+          <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Thời gian thống kê:</div>
+          <div className="grid grid-cols-4 sm:grid-cols-7 lg:grid-cols-13 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
+            {/* Months 1 to 12 */}
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+              <button
+                key={m}
+                onClick={() => setSelectedStatsMonth(m)}
+                className={`py-2 text-xs font-bold rounded-lg cursor-pointer transition-all ${
+                  selectedStatsMonth === m
+                    ? 'bg-red-650 text-white shadow-xs'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200/50'
+                }`}
+              >
+                Tháng {m}
+              </button>
+            ))}
+            {/* Whole Year aggregation button */}
+            <button
+              onClick={() => setSelectedStatsMonth(0)}
+              className={`py-2 text-xs font-extrabold rounded-lg cursor-pointer transition-all uppercase tracking-wide col-span-4 sm:col-span-2 lg:col-span-1 ${
+                selectedStatsMonth === 0
+                  ? 'bg-slate-800 text-white shadow-xs'
+                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-800 border border-indigo-200'
+              }`}
+            >
+              Cả Năm
+            </button>
+          </div>
+        </div>
 
-                  // Calculate exact parameters
-                  let totalAssignedScore = 0;
-                  let totalQuantityScore = 0;
-                  let totalQualityScore = 0;
-                  let totalSpeedScore = 0;
+        {/* Selected Officer and Calculation View */}
+        {(() => {
+          const currentOfficer = activeOfficers.find(o => o.id === statsOfficerId) || activeOfficers[0];
+          if (!currentOfficer) {
+            return (
+              <div className="bg-slate-50 p-8 rounded-xl text-center text-slate-500 font-medium">
+                Vui lòng khởi tạo danh sách Cán bộ đội để xem thống kê.
+              </div>
+            );
+          }
 
-                  tasksList.forEach(task => {
-                    const rowAssigned = task.assignedQty * task.scorePerProduct;
-                    const rowCompleted = task.completedQty * task.scorePerProduct;
-                    const rowQuality = rowCompleted * task.qualityFactor;
-                    const rowSpeed = rowCompleted * task.speedFactor;
+          if (selectedStatsMonth > 0) {
+            // --- MONTHLY DETAILED KPI SHEET VIEW ---
+            const statsTasks = getKpiTasksForOfficer(currentOfficer.id, selectedStatsYear, selectedStatsMonth);
+            
+            // Computations
+            let totalAssignedScore = 0;
+            let totalQuantityScore = 0;
+            let totalQualityScore = 0;
+            let totalSpeedScore = 0;
+            let totalCompletedQty = 0;
 
-                    totalAssignedScore += rowAssigned;
-                    totalQuantityScore += rowCompleted;
-                    totalQualityScore += rowQuality;
-                    totalSpeedScore += rowSpeed;
-                  });
+            statsTasks.forEach(task => {
+              const rowAssigned = task.assignedQty * task.scorePerProduct;
+              const rowCompleted = task.completedQty * task.scorePerProduct;
+              const rowQuality = rowCompleted * task.qualityFactor;
+              const rowSpeed = rowCompleted * task.speedFactor;
 
-                  // Coefficients
-                  const A = totalAssignedScore > 0 ? (totalQuantityScore / totalAssignedScore) : 0;
-                  const B = totalAssignedScore > 0 ? (totalQualityScore / totalAssignedScore) : 0;
-                  const C = totalAssignedScore > 0 ? (totalSpeedScore / totalAssignedScore) : 0;
+              totalAssignedScore += rowAssigned;
+              totalCompletedQty += task.completedQty;
+              totalQuantityScore += rowCompleted;
+              totalQualityScore += rowQuality;
+              totalSpeedScore += rowSpeed;
+            });
 
-                  const computedKpiPercent = ((A + B + C) / 3) * 100;
-                  const stableKpiRounded = parseFloat(computedKpiPercent.toFixed(2));
+            const A = totalAssignedScore > 0 ? (totalQuantityScore / totalAssignedScore) : 1;
+            const B = totalAssignedScore > 0 ? (totalQualityScore / totalAssignedScore) : 1;
+            const C = totalAssignedScore > 0 ? (totalSpeedScore / totalAssignedScore) : 1;
 
-                  // Standard static score E out of 30 parsed stable from officer if needed, or editable kpiEValue
-                  const totalEvaluationScore = kpiEValue + (stableKpiRounded * 0.7);
+            const computedKpi = ((A + B + C) / 3) * 100;
+            const kpiRounded = parseFloat(computedKpi.toFixed(2));
+            const totalScore = statsEValue + kpiRounded * 0.7;
 
-                  const isLeader = targetOfficer.position.includes('Đội trưởng') || targetOfficer.position.includes('Phó đội trưởng');
-                  const formulaLabel = isLeader ? 'Công thức chỉ huy (H = E + KPI x 0,7)' : 'Công thức chiến sĩ (G = E + KPI x 0,7)';
+            let classification = 'Không hoàn thành';
+            let badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
+            if (totalScore >= 90) {
+              classification = 'Hoàn thành Xuất sắc';
+              badgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+            } else if (totalScore >= 70) {
+              classification = 'Hoàn thành Tốt';
+              badgeColor = 'bg-indigo-50 text-indigo-800 border-indigo-200';
+            } else if (totalScore >= 50) {
+              classification = 'Hoàn thành Nhiệm vụ';
+              badgeColor = 'bg-amber-50 text-amber-800 border-amber-200';
+            }
 
-                  return (
-                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-5 no-print" id="kpi-evaluation-details-sheet">
-                      <div className="flex justify-between items-start border-b pb-3 leading-tight flex-wrap gap-2">
-                        <div>
-                          <span className="text-[10px] font-mono font-bold text-red-650 uppercase">B. Chấm điểm chi tiết thực hiện nhiệm vụ</span>
-                          <h3 className="font-extrabold text-sm text-slate-800 leading-snug uppercase mt-1">
-                            BẢNG CHẤM ĐIỂM CHUYÊN MÔN: {targetOfficer.fullName}
-                          </h3>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              if (confirm('Khôi phục danh mục nhiệm vụ đánh giá chuẩn theo mẫu Page 16 của Hướng dẫn?')) {
-                                const updated = { ...officerKpiTasks };
-                                delete updated[targetOfficer.id];
-                                setOfficerKpiTasks(updated);
-                                setOfficers(officers.map(o => o.id === targetOfficer.id ? { ...o, kpi: 97.97 } : o));
-                              }
-                            }}
-                            className="p-1 px-2.5 border hover:bg-slate-50 text-slate-600 rounded text-[11px] font-bold cursor-pointer"
-                          >
-                            Thiết lập lại mẫu chuẩn
-                          </button>
-                        </div>
-                      </div>
+            // Exporter for single month
+            const handleExportMonthlyKpiExcelLocal = () => {
+              const todayStrInVietnamese = `Tây Ninh, ngày ${String(new Date().getDate()).padStart(2, '0')} tháng ${String(new Date().getMonth() + 1).padStart(2, '0')} năm ${new Date().getFullYear()}`;
+              
+              let htmlContent = `
+                <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+                <head>
+                <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+                <style>
+                  body { font-family: "Times New Roman", Times, serif; }
+                  .main-table { width: 100%; border-collapse: collapse; font-size: 11pt; }
+                  .main-table th { border: 1px solid #000000; padding: 10px 6px; font-weight: bold; text-align: center; background-color: #f2f2f2; }
+                  .main-table td { border: 1px solid #000000; padding: 8px 6px; vertical-align: middle; }
+                </style>
+                </head>
+                <body>
+                  <h2 style="text-align: center; text-transform: uppercase;">BẢNG ĐÁNH GIÁ CHỈ SỐ KPI THÁNG ${selectedStatsMonth}/${selectedStatsYear}</h2>
+                  <h3 style="text-align: center;">Cán bộ đánh giá: ${currentOfficer.position} ${currentOfficer.fullName}</h3>
+                  
+                  <table class="main-table" border="1" style="border-collapse: collapse; border: 1px solid black; width: 100%;">
+                    <thead>
+                      <tr style="background-color: #f2f2f2;">
+                        <th rowspan="2">STT</th>
+                        <th rowspan="2">Nội dung nhiệm vụ</th>
+                        <th rowspan="2">Sản phẩm công việc</th>
+                        <th colspan="3">Giao nhiệm vụ</th>
+                        <th colspan="8">Đánh giá</th>
+                      </tr>
+                      <tr style="background-color: #f2f2f2;">
+                        <th>Điểm sản phẩm</th>
+                        <th>Số lượng</th>
+                        <th>Tổng điểm giao</th>
+                        <th>Số lượng hoàn thành</th>
+                        <th>Điểm Số lượng (A)</th>
+                        <th>Chất lượng vượt mức</th>
+                        <th>Thiếu sót chỉnh sửa</th>
+                        <th>Điểm Chất lượng (B)</th>
+                        <th>Tiến độ vượt/đạt</th>
+                        <th>Tiến độ chậm</th>
+                        <th>Điểm Tiến độ (C)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+              `;
 
-                      {/* Spreadsheet view according to Page 16 PDF */}
-                      <div className="overflow-x-auto border border-slate-200 rounded-lg">
-                        <table className="w-full text-left text-[11px] text-slate-700 min-w-[700px] border-collapse bg-white">
-                          <thead>
-                            <tr className="bg-slate-100 text-[10px] text-slate-800 font-extrabold uppercase border-b border-slate-200">
-                              <th className="p-2 text-center border-r w-8">STT</th>
-                              <th className="p-2 border-r w-40">Nhiệm vụ công tác chuyên môn</th>
-                              <th className="p-2 text-center border-r w-21">Sản phẩm</th>
-                              <th className="p-2 text-center border-r w-14">Điểm sp</th>
-                              <th className="p-2 text-center border-r w-12">Yêu cầu</th>
-                              <th className="p-2 text-center border-r w-14 bg-blue-50/50">SL hoàn thành</th>
-                              <th className="p-2 border-r bg-emerald-50/30">Chất lượng (Đánh giá)</th>
-                              <th className="p-2 bg-amber-50/30">Tiến độ (Đánh giá)</th>
-                              <th className="p-2 text-center w-8">Xóa</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y font-semibold">
-                            {tasksList.map((task, idx) => {
-                              const rowAssigned = task.assignedQty * task.scorePerProduct;
-                              const rowCompleted = task.completedQty * task.scorePerProduct;
-                              
-                              return (
-                                <tr key={task.id} className="hover:bg-slate-50/30">
-                                  <td className="p-2 text-center border-r font-mono text-slate-400">{idx + 1}</td>
-                                  <td className="p-2 border-r leading-tight text-slate-800 font-extrabold">
-                                    <input 
-                                      type="text" 
-                                      value={task.name} 
-                                      onChange={(e) => {
-                                        const updatedTasks = tasksList.map(t => t.id === task.id ? { ...t, name: e.target.value } : t);
-                                        const newTasksMap = { ...officerKpiTasks, [targetOfficer.id]: updatedTasks };
-                                        setOfficerKpiTasks(newTasksMap);
-                                      }}
-                                      className="w-full p-1 bg-transparent hover:bg-slate-100/70 focus:bg-white text-xs border border-transparent focus:border-slate-300 rounded font-normal leading-normal"
-                                    />
-                                  </td>
-                                  <td className="p-2 text-center border-r">
-                                    <select
-                                      value={task.product}
-                                      onChange={(e) => {
-                                        const updatedTasks = tasksList.map(t => t.id === task.id ? { ...t, product: e.target.value } : t);
-                                        const newTasksMap = { ...officerKpiTasks, [targetOfficer.id]: updatedTasks };
-                                        setOfficerKpiTasks(newTasksMap);
-                                      }}
-                                      className="p-1 text-[11px] bg-transparent hover:bg-slate-100 rounded focus:bg-white"
-                                    >
-                                      <option value="Công văn">Công văn</option>
-                                      <option value="Báo cáo">Báo cáo</option>
-                                      <option value="Tờ trình">Tờ trình</option>
-                                      <option value="Thông tư">Thông tư</option>
-                                      <option value="Quyết định">Quyết định</option>
-                                      <option value="Chỉ thị">Chỉ thị</option>
-                                      <option value="Kế hoạch">Kế hoạch</option>
-                                    </select>
-                                  </td>
-                                  <td className="p-2 text-center border-r">
-                                    <input 
-                                      type="number" 
-                                      value={task.scorePerProduct} 
-                                      onChange={(e) => {
-                                        const val = parseInt(e.target.value) || 0;
-                                        const updatedTasks = tasksList.map(t => t.id === task.id ? { ...t, scorePerProduct: val } : t);
-                                        const newTasksMap = { ...officerKpiTasks, [targetOfficer.id]: updatedTasks };
-                                        setOfficerKpiTasks(newTasksMap);
-                                      }}
-                                      className="w-12 p-1 text-center bg-transparent border border-transparent focus:border-slate-300 rounded hover:bg-slate-100/70 text-right font-mono"
-                                    />
-                                  </td>
-                                  <td className="p-2 text-center border-r font-mono">
-                                    <input 
-                                      type="number" 
-                                      value={task.assignedQty} 
-                                      onChange={(e) => {
-                                        const val = parseInt(e.target.value) || 1;
-                                        const updatedTasks = tasksList.map(t => t.id === task.id ? { ...t, assignedQty: val } : t);
-                                        const newTasksMap = { ...officerKpiTasks, [targetOfficer.id]: updatedTasks };
-                                        setOfficerKpiTasks(newTasksMap);
-                                      }}
-                                      className="w-10 p-1 text-center bg-transparent border border-transparent focus:border-slate-300 rounded hover:bg-slate-100/70 text-right font-mono"
-                                    />
-                                  </td>
-                                  <td className="p-2 text-center border-r font-mono bg-blue-50/20">
-                                    <input 
-                                      type="number" 
-                                      value={task.completedQty} 
-                                      onChange={(e) => {
-                                        const val = parseInt(e.target.value) || 0;
-                                        const updatedTasks = tasksList.map(t => t.id === task.id ? { ...t, completedQty: val } : t);
-                                        const newTasksMap = { ...officerKpiTasks, [targetOfficer.id]: updatedTasks };
-                                        setOfficerKpiTasks(newTasksMap);
-                                      }}
-                                      className="w-10 p-1 text-center bg-transparent border border-transparent focus:border-slate-300 rounded hover:bg-slate-100/70 text-right font-mono text-blue-700 font-bold"
-                                    />
-                                  </td>
-                                  <td className="p-2 border-r bg-emerald-50/10">
-                                    <div className="flex flex-col gap-1">
-                                      <select
-                                        value={task.qualityFactor}
-                                        onChange={(e) => {
-                                          const factor = parseFloat(e.target.value);
-                                          const note = factor === 1.1 ? 'Đảm bảo vượt mức' :
-                                                       factor === 1.0 ? 'Đảm bảo' :
-                                                       factor === 0.75 ? 'Chỉnh sửa 1 lần' :
-                                                       factor === 0.5 ? 'Thiếu sót nhẹ' : 'Không đạt';
-                                          const updatedTasks = tasksList.map(t => t.id === task.id ? { ...t, qualityFactor: factor, qualityNote: note } : t);
-                                          const newTasksMap = { ...officerKpiTasks, [targetOfficer.id]: updatedTasks };
-                                          setOfficerKpiTasks(newTasksMap);
-                                        }}
-                                        className="p-0.5 text-[10px] bg-slate-100 text-slate-800 rounded font-semibold border-none max-w-[130px]"
-                                      >
-                                        <option value="1.1">🌟 Vượt mức (110%)</option>
-                                        <option value="1.0">✅ Đảm bảo (100%)</option>
-                                        <option value="0.75">⚠️ Chỉnh sửa 1 lần (75%)</option>
-                                        <option value="0.5">❌ Thiếu sót nhẹ (50%)</option>
-                                        <option value="0.0">🛑 Không đạt (0%)</option>
-                                      </select>
-                                      <span className="text-[10px] text-emerald-700 italic block mt-0.5 font-medium">
-                                        Điểm: {rowCompleted * task.qualityFactor} / {rowAssigned}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="p-2 bg-amber-50/10">
-                                    <div className="flex flex-col gap-1">
-                                      <select
-                                        value={task.speedFactor}
-                                        onChange={(e) => {
-                                          const factor = parseFloat(e.target.value);
-                                          const note = factor === 1.2 ? 'Vượt tiến độ' :
-                                                       factor === 1.0 ? 'Đảm bảo' :
-                                                       factor === 0.75 ? 'Nhắc nhở 1 lần' :
-                                                       factor === 0.5 ? 'Nhắc nhở 2 lần' : 'Quá hạn trễ';
-                                          const updatedTasks = tasksList.map(t => t.id === task.id ? { ...t, speedFactor: factor, speedNote: note } : t);
-                                          const newTasksMap = { ...officerKpiTasks, [targetOfficer.id]: updatedTasks };
-                                          setOfficerKpiTasks(newTasksMap);
-                                        }}
-                                        className="p-0.5 text-[10px] bg-slate-100 text-slate-800 rounded font-semibold border-none max-w-[130px]"
-                                      >
-                                        <option value="1.2">⚡ Vượt tiến độ (120%)</option>
-                                        <option value="1.0">✅ Đúng hạn (100%)</option>
-                                        <option value="0.75">⚠️ Nhắc nhở 1 lần (75%)</option>
-                                        <option value="0.5">⚠️ Nhắc nhở 2 lần (50%)</option>
-                                        <option value="0.0">🛑 Trễ hạn hoàn toàn (0%)</option>
-                                      </select>
-                                      <span className="text-[10px] text-amber-700 italic block mt-0.5 font-medium">
-                                        Điểm: {rowCompleted * task.speedFactor} / {rowAssigned}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="p-2 text-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (tasksList.length <= 1) {
-                                          alert('Phải có ít nhất một nhiệm vụ để chấm điểm.');
-                                          return;
-                                        }
-                                        const updatedTasks = tasksList.filter(t => t.id !== task.id);
-                                        const newTasksMap = { ...officerKpiTasks, [targetOfficer.id]: updatedTasks };
-                                        setOfficerKpiTasks(newTasksMap);
-                                      }}
-                                      className="p-1 hover:bg-red-50 text-red-500 rounded cursor-pointer"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
+              statsTasks.forEach((task, idx) => {
+                const rowAssigned = task.assignedQty * task.scorePerProduct;
+                const rowCompleted = task.completedQty * task.scorePerProduct;
+                const rowQuality = rowCompleted * task.qualityFactor;
+                const rowSpeed = rowCompleted * task.speedFactor;
 
-                            {/* Aggregates Row */}
-                            <tr className="bg-slate-50 font-black text-slate-800 text-[11px] border-t border-slate-300">
-                              <td colSpan={3} className="p-3 text-right">TỔNG CỘNG:</td>
-                              <td colSpan={2} className="p-3 text-center font-mono">Điểm giao: {totalAssignedScore}</td>
-                              <td className="p-3 text-center font-mono bg-blue-50/50">Hoàn thành: {totalQuantityScore}</td>
-                              <td className="p-3 bg-emerald-50/30 font-mono">Đạt chất lượng: {totalQualityScore}</td>
-                              <td className="p-3 bg-amber-50/30 font-mono" colSpan={2}>Đạt tiến độ: {totalSpeedScore}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
+                const qOver = task.qualityFactor >= 1.0 ? (task.qualityFactor === 1.1 ? 'Vượt mức 10%' : 'Đảm bảo') : '-';
+                const qUnder = task.qualityFactor < 1.0 ? `Chỉnh sửa (-${Math.round((1 - task.qualityFactor)*100)}%)` : '-';
+                
+                const sOver = task.speedFactor >= 1.0 ? 'Đảm bảo' : '-';
+                const sUnder = task.speedFactor < 1.0 ? `Chậm trễ (-${Math.round((1 - task.speedFactor)*100)}%)` : '-';
 
-                      {/* Add Custom evaluated Task inline trigger button */}
-                      {isAddingKpiRow ? (
-                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 mt-2 space-y-3 font-sans">
-                          <h4 className="font-bold text-slate-800 text-xs uppercase text-red-650">Thêm nhiệm vụ chấm điểm mới</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div className="md:col-span-2">
-                              <label className="block text-slate-600 text-[10px] font-bold mb-1">Tên nhiệm vụ công tác chuyên môn</label>
-                              <input 
+                htmlContent += `
+                  <tr>
+                    <td style="text-align: center;">${idx + 1}</td>
+                    <td>${task.name}</td>
+                    <td>${task.product}</td>
+                    <td style="text-align: center;">${task.scorePerProduct}</td>
+                    <td style="text-align: center;">${task.assignedQty}</td>
+                    <td style="text-align: center;">${rowAssigned}</td>
+                    <td style="text-align: center;">${task.completedQty}</td>
+                    <td style="text-align: center;">${rowCompleted}</td>
+                    <td style="text-align: center;">${qOver}</td>
+                    <td style="text-align: center;">${qUnder}</td>
+                    <td style="text-align: center;">${rowQuality.toFixed(1)}</td>
+                    <td style="text-align: center;">${sOver}</td>
+                    <td style="text-align: center;">${sUnder}</td>
+                    <td style="text-align: center;">${rowSpeed.toFixed(1)}</td>
+                  </tr>
+                `;
+              });
+
+              htmlContent += `
+                    <tr style="font-weight: bold; background-color: #f9f9f9;">
+                      <td colspan="5" style="text-align: right;">Tổng cộng:</td>
+                      <td style="text-align: center;">${totalAssignedScore}</td>
+                      <td style="text-align: center;">${totalCompletedQty}</td>
+                      <td style="text-align: center;">${totalQuantityScore}</td>
+                      <td colspan="2"></td>
+                      <td style="text-align: center;">${totalQualityScore.toFixed(1)}</td>
+                      <td colspan="2"></td>
+                      <td style="text-align: center;">${totalSpeedScore.toFixed(1)}</td>
+                    </tr>
+                    <tr style="font-weight: bold; background-color: #f2f2f2;">
+                      <td colspan="7" style="text-align: right; color: red;">Chỉ số thành phần (A, B, C):</td>
+                      <td style="text-align: center; color: red;">A = ${A === 1 ? '01' : A.toFixed(3)}</td>
+                      <td colspan="2"></td>
+                      <td style="text-align: center; color: red;">B = ${B.toFixed(3)}</td>
+                      <td colspan="2"></td>
+                      <td style="text-align: center; color: red;">C = ${C === 1 ? '01' : C.toFixed(3)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <div style="margin-top: 25px; font-size: 11pt; line-height: 1.5;">
+                  <p><b>1. Chỉ số hiệu suất công việc (KPI):</b></p>
+                  <p>KPI = (A + B + C) / 3 x 100 = (${A === 1 ? '01' : A.toFixed(3)} + ${B.toFixed(3)} + ${C === 1 ? '01' : C.toFixed(3)}) / 3 x 100 = <b>${kpiRounded}%</b></p>
+                  <p><b>2. Tổng điểm xếp loại:</b></p>
+                  <p>Tổng điểm đánh giá dùng trong xếp loại = Điểm tiêu chí chung (E) + KPI x 0,7 = ${statsEValue} + ${kpiRounded} x 0,7 = <b>${totalScore.toFixed(2)}</b></p>
+                  <p><b>Phân loại: ${classification.toUpperCase()}</b></p>
+                </div>
+
+                <table style="width: 100%; border: none; margin-top: 45px; font-size: 11.5pt;">
+                  <tr>
+                    <td style="width: 50%; text-align: center; font-weight: bold; text-transform: uppercase; border: none;">
+                      CHI HUY DUYỆT
+                    </td>
+                    <td style="width: 50%; text-align: center; font-style: italic; border: none;">
+                      ${todayStrInVietnamese}<br/>
+                      <b>CÁN BỘ ĐÁNH GIÁ</b>
+                    </td>
+                  </tr>
+                </table>
+                </body>
+                </html>
+              `;
+
+              const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.setAttribute('download', `KPI_Thang_${selectedStatsMonth}_${currentOfficer.fullName.replace(/\s+/g, '_')}.xls`);
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            };
+
+            const handleExportMonthlyKpiWordLocal = () => {
+              const todayStrInVietnamese = `Tây Ninh, ngày ${String(new Date().getDate()).padStart(2, '0')} tháng ${String(new Date().getMonth() + 1).padStart(2, '0')} năm ${new Date().getFullYear()}`;
+
+              let htmlContent = `
+                <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+                <head>
+                <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+                <style>
+                  @page {
+                    size: A4 portrait;
+                    margin: 1.5cm 1.5cm 1.5cm 1.5cm;
+                  }
+                  body { font-family: "Times New Roman", Times, serif; font-size: 11pt; line-height: 1.3; }
+                  .header-table { width: 100%; border: none !important; margin-bottom: 25px; }
+                  .header-table td { border: none !important; padding: 2px; text-align: center; font-size: 10.5pt; vertical-align: top; }
+                  .title-section { text-align: center; margin-bottom: 20px; }
+                  .doc-title { font-size: 14pt; font-weight: bold; text-transform: uppercase; margin: 0; }
+                  .doc-subtitle { font-size: 11.5pt; font-style: italic; margin-top: 5px; margin-bottom: 0; }
+                  .info-p { font-size: 11pt; font-weight: bold; margin-top: 5px; margin-bottom: 15px; text-align: center; }
+                  .main-table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 15px; }
+                  .main-table th { border: 1px solid #000000; padding: 6px 3px; font-weight: bold; text-align: center; background-color: #f2f2f2; }
+                  .main-table td { border: 1px solid #000000; padding: 5px 3px; vertical-align: middle; }
+                  .formula-box { margin-top: 20px; border: 1px dashed #777; padding: 10px; font-size: 11pt; background-color: #fafafa; }
+                  .signature-table { width: 100%; border: none !important; margin-top: 35px; }
+                  .signature-table td { border: none !important; text-align: center; vertical-align: top; font-size: 11pt; width: 50%; }
+                </style>
+                </head>
+                <body>
+                  <table class="header-table">
+                    <tr>
+                      <td style="width: 45%;">
+                        <b>CÔNG AN TỈNH TÂY NINH</b><br/>
+                        <b>PHÒNG CẢNH SÁT PCCC & CNCH</b><br/>
+                        <span>ĐỘI CC & CNCH KV TÂN AN</span><br/>
+                        <span>*</span>
+                      </td>
+                      <td style="width: 55%; font-weight: bold;">
+                        <b>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</b><br/>
+                        <span style="font-size: 11pt;">Độc lập - Tự do - Hạnh phúc</span><br/>
+                        <span>---------------</span>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <div class="title-section">
+                    <h2 class="doc-title">BẢNG ĐÁNH GIÁ CHỈ SỐ KPI CHI TIẾT</h2>
+                    <p class="doc-subtitle">Tháng ${selectedStatsMonth} năm ${selectedStatsYear}</p>
+                    <p class="info-p">Cán bộ thực hiện: ${currentOfficer.position} ${currentOfficer.fullName}</p>
+                  </div>
+
+                  <table class="main-table">
+                    <thead>
+                      <tr style="background-color: #e6e6e6;">
+                        <th rowspan="2" style="width: 30px;">STT</th>
+                        <th rowspan="2">Nội dung nhiệm vụ</th>
+                        <th rowspan="2" style="width: 100px;">Sản phẩm</th>
+                        <th colspan="3">Giao nhiệm vụ</th>
+                        <th colspan="8">Đánh giá kết quả thực hiện</th>
+                      </tr>
+                      <tr style="background-color: #f2f2f2;">
+                        <th style="width: 45px;">Điểm SP</th>
+                        <th style="width: 40px;">Số lượng</th>
+                        <th style="width: 55px;">Tổng điểm</th>
+                        <th style="width: 40px;">SL hoàn thành</th>
+                        <th style="width: 55px;">Điểm SL (A)</th>
+                        <th style="width: 80px;">Chất lượng vượt mức</th>
+                        <th style="width: 80px;">Thiếu sót chỉnh sửa</th>
+                        <th style="width: 55px;">Điểm CL (B)</th>
+                        <th style="width: 80px;">Tiến độ vượt/đạt</th>
+                        <th style="width: 80px;">Tiến độ chậm</th>
+                        <th style="width: 55px;">Điểm TĐ (C)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+              `;
+
+              statsTasks.forEach((task, idx) => {
+                const rowAssigned = task.assignedQty * task.scorePerProduct;
+                const rowCompleted = task.completedQty * task.scorePerProduct;
+                const rowQuality = rowCompleted * task.qualityFactor;
+                const rowSpeed = rowCompleted * task.speedFactor;
+
+                const qOver = task.qualityFactor >= 1.0 ? (task.qualityFactor === 1.1 ? 'Vượt mức (+10%)' : 'Đảm bảo') : '-';
+                const qUnder = task.qualityFactor < 1.0 ? `Chỉnh sửa (-${Math.round((1 - task.qualityFactor)*100)}%)` : '-';
+                
+                const sOver = task.speedFactor >= 1.0 ? 'Đảm bảo' : '-';
+                const sUnder = task.speedFactor < 1.0 ? `Chậm trễ (-${Math.round((1 - task.speedFactor)*100)}%)` : '-';
+
+                htmlContent += `
+                  <tr>
+                    <td style="text-align: center;">${idx + 1}</td>
+                    <td>${task.name}</td>
+                    <td>${task.product}</td>
+                    <td style="text-align: center;">${task.scorePerProduct}</td>
+                    <td style="text-align: center;">${task.assignedQty}</td>
+                    <td style="text-align: center;">${rowAssigned}</td>
+                    <td style="text-align: center;">${task.completedQty}</td>
+                    <td style="text-align: center;">${rowCompleted}</td>
+                    <td style="text-align: center;">${qOver}</td>
+                    <td style="text-align: center;">${qUnder}</td>
+                    <td style="text-align: center; font-weight: bold;">${rowQuality.toFixed(1)}</td>
+                    <td style="text-align: center;">${sOver}</td>
+                    <td style="text-align: center;">${sUnder}</td>
+                    <td style="text-align: center; font-weight: bold;">${rowSpeed.toFixed(1)}</td>
+                  </tr>
+                `;
+              });
+
+              htmlContent += `
+                    <tr style="font-weight: bold; background-color: #fafafa;">
+                      <td colspan="3" style="text-align: right;">Cộng hệ số:</td>
+                      <td colspan="2"></td>
+                      <td style="text-align: center;">${totalAssignedScore}</td>
+                      <td style="text-align: center;">${totalCompletedQty}</td>
+                      <td style="text-align: center;">${totalQuantityScore}</td>
+                      <td colspan="2"></td>
+                      <td style="text-align: center;">${totalQualityScore.toFixed(1)}</td>
+                      <td colspan="2"></td>
+                      <td style="text-align: center;">${totalSpeedScore.toFixed(1)}</td>
+                    </tr>
+                    <tr style="font-weight: bold; background-color: #f2f2f2;">
+                      <td colspan="7" style="text-align: right; color: #b91c1c;">Chỉ số thành phần (A, B, C):</td>
+                      <td style="text-align: center; color: #b91c1c;">A = ${A === 1 ? '01' : A.toFixed(3)}</td>
+                      <td colspan="2"></td>
+                      <td style="text-align: center; color: #b91c1c;">B = ${B.toFixed(3)}</td>
+                      <td colspan="2"></td>
+                      <td style="text-align: center; color: #b91c1c;">C = ${C === 1 ? '01' : C.toFixed(3)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <div class="formula-box">
+                  <p style="margin: 0 0 8px 0;"><b>1. Hiệu suất công việc (KPI):</b></p>
+                  <p style="margin: 0 0 12px 15px;">Công thức: KPI = (A + B + C) / 3 x 100</p>
+                  <p style="margin: 0 0 12px 15px;">Kết quả thực tế: KPI = (${A === 1 ? '01' : A.toFixed(3)} + ${B.toFixed(3)} + ${C === 1 ? '01' : C.toFixed(3)}) / 3 x 100 = <b>${kpiRounded}%</b></p>
+                  
+                  <p style="margin: 0 0 8px 0;"><b>2. Tiêu chí đánh giá chung (E):</b> <b>${statsEValue} điểm</b> (Tối đa 30 điểm)</p>
+                  
+                  <p style="margin: 12px 0 8px 0;"><b>3. Tổng điểm đánh giá và xếp loại cá nhân:</b></p>
+                  <p style="margin: 0 0 8px 15px;">Công thức: Tổng điểm = E + KPI x 0,7 = ${statsEValue} + ${kpiRounded} x 0,7 = <b>${totalScore.toFixed(2)} điểm</b></p>
+                  <p style="margin: 0 0 0 15px;"><b>XẾP LOẠI CÁ NHÂN: <span style="color: #b91c1c; text-transform: uppercase;">${classification}</span></b></p>
+                </div>
+
+                <table class="signature-table">
+                  <tr>
+                    <td>
+                      <b>CHỈ HUY DUYỆT</b><br/>
+                      <span style="font-size: 9pt; font-style: italic;">(Ký, ghi rõ họ tên)</span>
+                      <div style="height: 80px;"></div>
+                    </td>
+                    <td>
+                      <span style="font-style: italic;">${todayStrInVietnamese}</span><br/>
+                      <b>CÁN BỘ ĐÁNH GIÁ</b><br/>
+                      <span style="font-size: 9pt; font-style: italic;">(Ký, ghi rõ họ tên)</span>
+                      <div style="height: 80px;"></div>
+                      <p style="margin: 0; font-weight: bold;">${currentOfficer.fullName}</p>
+                    </td>
+                  </tr>
+                </table>
+                </body>
+                </html>
+              `;
+
+              const blob = new Blob([htmlContent], { type: 'application/msword;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.setAttribute('download', `KPI_Thang_${selectedStatsMonth}_${currentOfficer.fullName.replace(/\s+/g, '_')}.doc`);
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            };
+
+            return (
+              <div className="space-y-6">
+                {/* Actions Toolbar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 no-print">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleAddStatsTask(currentOfficer.id, selectedStatsYear, selectedStatsMonth)}
+                      className="px-3 py-1.5 bg-red-650 hover:bg-red-700 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Thêm dòng nhiệm vụ
+                    </button>
+                    <button
+                      onClick={() => handleResetStatsTasks(currentOfficer.id, selectedStatsYear, selectedStatsMonth)}
+                      className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" /> Khôi phục mẫu chuẩn
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleExportMonthlyKpiExcelLocal}
+                      className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <FileDown className="w-3.5 h-3.5" /> Xuất Excel (XLS)
+                    </button>
+                    <button
+                      id="export-monthly-kpi-word-btn"
+                      onClick={handleExportMonthlyKpiWordLocal}
+                      className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                      title="Xuất bảng đánh giá chi tiết ra định dạng Microsoft Word (.doc)"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> Xuất Word (DOC)
+                    </button>
+                    <button
+                      onClick={() => window.print()}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <Printer className="w-3.5 h-3.5" /> In bảng đánh giá
+                    </button>
+                  </div>
+                </div>
+
+                {/* Print layout header */}
+                <div className="hidden print:block text-center space-y-2 mb-4">
+                  <div className="text-xs uppercase font-bold tracking-wide text-slate-500">
+                    PHÒNG CẢNH SÁT PCCC VÀ CNCH - ĐỘI CHỮA CHÁY KV TÂN AN
+                  </div>
+                  <h2 className="text-lg font-bold text-slate-900 uppercase">
+                    BẢNG ĐÁNH GIÁ CHỈ SỐ KPI CHI TIẾT THÁNG {selectedStatsMonth}/{selectedStatsYear}
+                  </h2>
+                  <div className="text-sm text-slate-700 font-semibold">
+                    Cán bộ thực hiện: {currentOfficer.position} {currentOfficer.fullName}
+                  </div>
+                </div>
+
+                {/* Table Container */}
+                <div className="overflow-x-auto rounded-xl border border-slate-300 shadow-sm bg-white">
+                  <table className="w-full text-left border-collapse font-sans text-xs min-w-[1200px]">
+                    <thead>
+                      {/* Level 1 Headers */}
+                      <tr className="bg-slate-800 text-white font-bold border-b border-slate-300 text-center">
+                        <th className="p-2 border-r border-slate-300 text-center w-12" rowSpan={2}>STT</th>
+                        <th className="p-2 border-r border-slate-300 text-center" rowSpan={2}>Nội dung nhiệm vụ</th>
+                        <th className="p-2 border-r border-slate-300 text-center w-28" rowSpan={2}>Sản phẩm</th>
+                        <th className="p-2 border-r border-slate-300 text-center bg-slate-700/80" colSpan={3}>Giao nhiệm vụ</th>
+                        <th className="p-2 border-r border-slate-300 text-center bg-emerald-950/85" colSpan={8}>Đánh giá</th>
+                        <th className="p-2 text-center w-20 no-print" rowSpan={2}>Thao tác</th>
+                      </tr>
+                      {/* Level 2 Headers */}
+                      <tr className="bg-slate-150 text-slate-700 font-bold border-b border-slate-300 text-center">
+                        {/* Giao nhiem vu sub-columns */}
+                        <th className="p-1.5 border-r border-slate-300 text-[10px] bg-slate-100 w-20">Điểm SP</th>
+                        <th className="p-1.5 border-r border-slate-300 text-[10px] bg-slate-100 w-16">Số lượng</th>
+                        <th className="p-1.5 border-r border-slate-300 text-[10px] bg-slate-100 w-20">Tổng điểm</th>
+
+                        {/* Danh gia sub-columns */}
+                        <th className="p-1.5 border-r border-slate-300 text-[10px] bg-emerald-50/60 w-16">SL hoàn thành</th>
+                        <th className="p-1.5 border-r border-slate-300 text-[10px] bg-emerald-50/60 w-20">Điểm Số lượng (A)</th>
+                        <th className="p-1.5 border-r border-slate-300 text-[10px] bg-emerald-50/60 w-32">Chất lượng vượt mức</th>
+                        <th className="p-1.5 border-r border-slate-300 text-[10px] bg-emerald-50/60 w-32">Thiếu sót chỉnh sửa</th>
+                        <th className="p-1.5 border-r border-slate-300 text-[10px] bg-emerald-50/60 w-24">Điểm Chất lượng (B)</th>
+                        <th className="p-1.5 border-r border-slate-300 text-[10px] bg-emerald-50/60 w-28">Tiến độ vượt/đạt</th>
+                        <th className="p-1.5 border-r border-slate-300 text-[10px] bg-emerald-50/60 w-28">Tiến độ chậm</th>
+                        <th className="p-1.5 border-r border-slate-300 text-[10px] bg-emerald-50/60 w-24">Điểm Tiến độ (C)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {statsTasks.map((task, idx) => {
+                        const rowAssigned = task.assignedQty * task.scorePerProduct;
+                        const rowCompleted = task.completedQty * task.scorePerProduct;
+                        const rowQuality = rowCompleted * task.qualityFactor;
+                        const rowSpeed = rowCompleted * task.speedFactor;
+
+                        return (
+                          <tr key={task.id} className="border-b border-slate-200 hover:bg-slate-50/50 font-medium">
+                            <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-500 bg-slate-50/20">{idx + 1}</td>
+                            
+                            {/* Task Title */}
+                            <td className="p-2 border-r border-slate-200 font-sans">
+                              <input
                                 type="text"
-                                value={newKpiRowForm.name}
-                                onChange={(e) => setNewKpiRowForm({ ...newKpiRowForm, name: e.target.value })}
-                                placeholder="Nhập tên nhiệm vụ cụ thể..."
-                                className="w-full p-1.5 border border-slate-200 rounded text-xs bg-white text-slate-850 font-normal"
+                                value={task.name}
+                                onChange={(e) => handleUpdateTaskField(currentOfficer.id, selectedStatsYear, selectedStatsMonth, task.id, 'name', e.target.value)}
+                                className="w-full bg-transparent border-none p-0 focus:ring-0 font-sans text-xs font-semibold text-slate-850"
                               />
-                            </div>
-                            <div>
-                              <label className="block text-slate-600 text-[10px] font-bold mb-1">Sản phẩm công việc</label>
+                            </td>
+
+                            {/* Product */}
+                            <td className="p-2 border-r border-slate-200">
+                              <input
+                                type="text"
+                                value={task.product}
+                                onChange={(e) => handleUpdateTaskField(currentOfficer.id, selectedStatsYear, selectedStatsMonth, task.id, 'product', e.target.value)}
+                                className="w-full bg-transparent border-none p-0 focus:ring-0 text-center font-bold text-slate-650"
+                              />
+                            </td>
+
+                            {/* Score Per Product */}
+                            <td className="p-2 border-r border-slate-200">
+                              <input
+                                type="number"
+                                min={0}
+                                max={200}
+                                value={task.scorePerProduct}
+                                onChange={(e) => handleUpdateTaskField(currentOfficer.id, selectedStatsYear, selectedStatsMonth, task.id, 'scorePerProduct', parseInt(e.target.value) || 0)}
+                                className="w-full bg-transparent border-none p-0 focus:ring-0 text-center font-mono font-extrabold text-slate-800"
+                              />
+                            </td>
+
+                            {/* Assigned Qty */}
+                            <td className="p-2 border-r border-slate-200">
+                              <input
+                                type="number"
+                                min={1}
+                                max={50}
+                                value={task.assignedQty}
+                                onChange={(e) => handleUpdateTaskField(currentOfficer.id, selectedStatsYear, selectedStatsMonth, task.id, 'assignedQty', parseInt(e.target.value) || 1)}
+                                className="w-full bg-transparent border-none p-0 focus:ring-0 text-center font-mono font-extrabold text-blue-800 bg-blue-50/15"
+                              />
+                            </td>
+
+                            {/* Total Assigned points */}
+                            <td className="p-2 border-r border-slate-200 text-center font-mono font-bold text-slate-800 bg-slate-50/30">
+                              {rowAssigned}
+                            </td>
+
+                            {/* Completed Qty */}
+                            <td className="p-2 border-r border-slate-200">
+                              <input
+                                type="number"
+                                min={0}
+                                max={task.assignedQty}
+                                value={task.completedQty}
+                                onChange={(e) => handleUpdateTaskField(currentOfficer.id, selectedStatsYear, selectedStatsMonth, task.id, 'completedQty', parseInt(e.target.value) || 0)}
+                                className="w-full bg-transparent border-none p-0 focus:ring-0 text-center font-mono font-extrabold text-emerald-800 bg-emerald-50/15"
+                              />
+                            </td>
+
+                            {/* Points for Quantity completed */}
+                            <td className="p-2 border-r border-slate-200 text-center font-mono font-bold text-emerald-700 bg-emerald-50/30">
+                              {rowCompleted}
+                            </td>
+
+                            {/* Quality factor: Exceeds */}
+                            <td className="p-1 border-r border-slate-200 text-center">
                               <select
-                                value={newKpiRowForm.product}
-                                onChange={(e) => setNewKpiRowForm({ ...newKpiRowForm, product: e.target.value })}
-                                className="w-full p-1.5 border border-slate-200 rounded text-xs bg-white text-slate-850 font-semibold"
+                                value={task.qualityFactor >= 1.0 ? task.qualityFactor : 1.0}
+                                onChange={(e) => handleUpdateTaskField(currentOfficer.id, selectedStatsYear, selectedStatsMonth, task.id, 'qualityFactor', parseFloat(e.target.value))}
+                                className="text-[10px] p-0.5 border border-slate-200 rounded-sm font-semibold text-slate-700 bg-white focus:outline-hidden"
                               >
-                                <option value="Công văn">Công văn</option>
-                                <option value="Báo cáo">Báo cáo</option>
-                                <option value="Tờ trình">Tờ trình</option>
-                                <option value="Thông tư">Thông tư</option>
-                                <option value="Quyết định">Quyết định</option>
-                                <option value="Chỉ thị">Chỉ thị</option>
-                                <option value="Kế hoạch">Kế hoạch</option>
+                                <option value={1.1}>Vượt mức (+10%)</option>
+                                <option value={1.0}>Đảm bảo (100%)</option>
                               </select>
-                            </div>
-                          </div>
+                            </td>
 
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            <div>
-                              <label className="block text-slate-600 text-[10px] font-bold mb-1">Điểm một sản phẩm</label>
-                              <input 
-                                type="number"
-                                value={newKpiRowForm.scorePerProduct}
-                                onChange={(e) => setNewKpiRowForm({ ...newKpiRowForm, scorePerProduct: parseInt(e.target.value) || 10 })}
-                                className="w-full p-1.5 border border-slate-200 rounded text-xs bg-white text-slate-850 font-mono font-semibold"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-slate-600 text-[10px] font-bold mb-1">Tổng SL được giao</label>
-                              <input 
-                                type="number"
-                                value={newKpiRowForm.assignedQty}
-                                onChange={(e) => setNewKpiRowForm({ ...newKpiRowForm, assignedQty: parseInt(e.target.value) || 1 })}
-                                className="w-full p-1.5 border border-slate-200 rounded text-xs bg-white text-slate-850 font-mono font-semibold"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-slate-600 text-[10px] font-bold mb-1">SL hoàn thành thực tế</label>
-                              <input 
-                                type="number"
-                                value={newKpiRowForm.completedQty}
-                                onChange={(e) => setNewKpiRowForm({ ...newKpiRowForm, completedQty: parseInt(e.target.value) || 1 })}
-                                className="w-full p-1.5 border border-slate-200 rounded text-xs bg-white text-slate-850 font-mono font-semibold"
-                              />
-                            </div>
-                            <div className="flex items-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!newKpiRowForm.name.trim()) {
-                                    alert('Vui lòng điền nội dung nhiệm vụ!');
-                                    return;
-                                  }
-                                  const newRow: EvaluatedKpiTask = {
-                                    id: `TASK-${Date.now()}`,
-                                    ...newKpiRowForm
-                                  };
-                                  const updatedTasks = [...tasksList, newRow];
-                                  setOfficerKpiTasks({ ...officerKpiTasks, [targetOfficer.id]: updatedTasks });
-                                  setIsAddingKpiRow(false);
-                                  setNewKpiRowForm({
-                                    name: '',
-                                    product: 'Công văn',
-                                    scorePerProduct: 10,
-                                    assignedQty: 1,
-                                    completedQty: 1,
-                                    qualityFactor: 1.0,
-                                    speedFactor: 1.0,
-                                    qualityNote: 'Đảm bảo',
-                                    speedNote: 'Đảm bảo'
-                                  });
-                                }}
-                                className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 cursor-pointer shadow-3xs"
+                            {/* Quality factor: Deficiencies */}
+                            <td className="p-1 border-r border-slate-200 text-center">
+                              <select
+                                value={task.qualityFactor < 1.0 ? task.qualityFactor : 1.0}
+                                onChange={(e) => handleUpdateTaskField(currentOfficer.id, selectedStatsYear, selectedStatsMonth, task.id, 'qualityFactor', parseFloat(e.target.value))}
+                                className="text-[10px] p-0.5 border border-slate-200 rounded-sm font-semibold text-slate-700 bg-white focus:outline-hidden"
                               >
-                                Thêm hàng
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setIsAddingKpiRow(false)}
-                                className="px-3 py-1.5 bg-slate-205 hover:bg-slate-300 text-slate-700 rounded text-xs font-bold cursor-pointer"
+                                <option value={1.0}>Không lỗi (100%)</option>
+                                <option value={0.75}>Chỉnh sửa 1 lần (-25%)</option>
+                                <option value={0.5}>Chỉnh sửa 2 lần (-50%)</option>
+                                <option value={0.0}>Không đạt (0%)</option>
+                              </select>
+                            </td>
+
+                            {/* Points for Quality B */}
+                            <td className="p-2 border-r border-slate-200 text-center font-mono font-extrabold text-teal-800 bg-teal-50/20">
+                              {rowQuality.toFixed(1)}
+                            </td>
+
+                            {/* Speed factor: Exceeds/On time */}
+                            <td className="p-1 border-r border-slate-200 text-center">
+                              <select
+                                value={task.speedFactor >= 1.0 ? task.speedFactor : 1.0}
+                                onChange={(e) => handleUpdateTaskField(currentOfficer.id, selectedStatsYear, selectedStatsMonth, task.id, 'speedFactor', parseFloat(e.target.value))}
+                                className="text-[10px] p-0.5 border border-slate-200 rounded-sm font-semibold text-slate-700 bg-white focus:outline-hidden"
                               >
-                                Đóng
+                                <option value={1.0}>Đảm bảo (100%)</option>
+                              </select>
+                            </td>
+
+                            {/* Speed factor: Delay */}
+                            <td className="p-1 border-r border-slate-200 text-center">
+                              <select
+                                value={task.speedFactor < 1.0 ? task.speedFactor : 1.0}
+                                onChange={(e) => handleUpdateTaskField(currentOfficer.id, selectedStatsYear, selectedStatsMonth, task.id, 'speedFactor', parseFloat(e.target.value))}
+                                className="text-[10px] p-0.5 border border-slate-200 rounded-sm font-semibold text-slate-700 bg-white focus:outline-hidden"
+                              >
+                                <option value={1.0}>Kịp thời (100%)</option>
+                                <option value={0.75}>Chậm 01 lần (-25%)</option>
+                                <option value={0.5}>Chậm 02 lần (-50%)</option>
+                                <option value={0.0}>Trễ hạn (0%)</option>
+                              </select>
+                            </td>
+
+                            {/* Points for Speed C */}
+                            <td className="p-2 border-r border-slate-200 text-center font-mono font-extrabold text-indigo-800 bg-indigo-50/20">
+                              {rowSpeed.toFixed(1)}
+                            </td>
+
+                            {/* Actions */}
+                            <td className="p-2 text-center no-print">
+                              <button
+                                onClick={() => handleDeleteStatsTask(currentOfficer.id, selectedStatsYear, selectedStatsMonth, task.id)}
+                                className="p-1 hover:bg-red-50 text-red-550 hover:text-red-700 rounded-md transition-colors cursor-pointer"
+                                title="Xóa dòng"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
-                            </div>
-                          </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {/* --- SUMMARY TOTALS ROW --- */}
+                      <tr className="bg-slate-50 border-t border-b-2 border-slate-300 font-bold text-slate-800">
+                        <td className="p-2.5 text-right border-r border-slate-300" colSpan={3}>Tổng cộng:</td>
+                        <td className="p-2 text-center border-r border-slate-300 bg-slate-100/30" colSpan={2}>-</td>
+                        <td className="p-2 text-center border-r border-slate-300 font-mono text-slate-900 bg-slate-100">{totalAssignedScore}</td>
+                        <td className="p-2 text-center border-r border-slate-300 font-mono text-emerald-800 bg-emerald-100/20">{totalCompletedQty}</td>
+                        <td className="p-2 text-center border-r border-slate-300 font-mono text-emerald-900 bg-emerald-100/30">{totalQuantityScore}</td>
+                        <td className="p-2 text-center border-r border-slate-300" colSpan={2}>-</td>
+                        <td className="p-2 text-center border-r border-slate-300 font-mono text-teal-900 bg-teal-100/30">{totalQualityScore.toFixed(1)}</td>
+                        <td className="p-2 text-center border-r border-slate-300" colSpan={2}>-</td>
+                        <td className="p-2 text-center border-r border-slate-300 font-mono text-indigo-900 bg-indigo-100/30">{totalSpeedScore.toFixed(1)}</td>
+                        <td className="p-2 text-center no-print"></td>
+                      </tr>
+
+                      {/* --- COMPONENT SCORE (A, B, C) ROW --- */}
+                      <tr className="bg-emerald-50/10 border-b border-slate-300 font-extrabold text-slate-800 text-[12px]">
+                        <td className="p-3 text-right border-r border-slate-300 text-emerald-850 uppercase" colSpan={3}>Điểm các chỉ số (A, B, C):</td>
+                        <td className="p-2 text-center border-r border-slate-300" colSpan={2}>-</td>
+                        <td className="p-2 text-center border-r border-slate-300 bg-slate-100/10">-</td>
+                        <td className="p-2 text-center border-r border-slate-300 bg-emerald-50/15">-</td>
+                        <td className="p-2 text-center border-r border-slate-300 font-mono text-red-650 bg-rose-50 border-2 border-red-200">
+                          A = {A === 1 ? '01' : A.toLocaleString('vi-VN', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
+                        </td>
+                        <td className="p-2 text-center border-r border-slate-300" colSpan={2}>-</td>
+                        <td className="p-2 text-center border-r border-slate-300 font-mono text-red-650 bg-rose-50 border-2 border-red-200">
+                          B = {B.toLocaleString('vi-VN', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
+                        </td>
+                        <td className="p-2 text-center border-r border-slate-300" colSpan={2}>-</td>
+                        <td className="p-2 text-center border-r border-slate-300 font-mono text-red-650 bg-rose-50 border-2 border-red-200">
+                          C = {C === 1 ? '01' : C.toLocaleString('vi-VN', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
+                        </td>
+                        <td className="p-2 text-center no-print"></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Formula details and grading dashboard */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Detailed mathematical step card */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-3 shadow-xs">
+                    <span className="text-[11px] font-bold uppercase text-red-650 block tracking-wide">
+                      📊 Công thức xác định chỉ số
+                    </span>
+                    <div className="space-y-3 font-sans text-xs text-slate-700 leading-relaxed">
+                      <div>
+                        <div className="font-extrabold text-slate-800 text-xs flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
+                          <span>1. Hiệu suất công việc (KPI):</span>
+                          <span className="text-red-650 font-mono text-sm">{kpiRounded}%</span>
                         </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setIsAddingKpiRow(true)}
-                          className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-250 rounded font-bold text-xs flex items-center gap-1.5 cursor-pointer mt-1"
-                        >
-                          <Plus className="w-3.5 h-3.5 text-blue-600" /> soạn thêm dòng nhiệm vụ đánh giá bổ sung
-                        </button>
-                      )}
+                        <p className="mt-1.5 pl-2 text-slate-500 italic">
+                          Công thức: KPI = (A + B + C) / 3 x 100
+                        </p>
+                        <p className="mt-1 pl-2 font-mono font-semibold text-slate-850">
+                          KPI = ({A === 1 ? '01' : A.toFixed(3)} + {B.toFixed(3)} + {C === 1 ? '01' : C.toFixed(3)}) / 3 x 100 = {kpiRounded}%
+                        </p>
+                      </div>
 
-                      {/* Calculations Panel matching exactly the formulas outlined on Page 7-8 of the guidance PDF */}
-                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-150 space-y-3 font-sans">
-                        <h4 className="font-extrabold text-slate-800 text-[11.5px] uppercase tracking-wide border-b pb-1.5 flex items-center gap-1">
-                          <TrendingUp className="w-4 h-4 text-emerald-600" />
-                          Kết quả đo lường và tính điểm chi tiết
-                        </h4>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[11.5px]">
-                          <div className="p-3 bg-white rounded-lg border border-slate-100">
-                            <strong>A. Chỉ số số lượng (A):</strong>
-                            <div className="font-mono text-slate-800 text-sm font-extrabold mt-1">
-                              {(A * 100).toFixed(2)}% ({A.toFixed(3)})
-                            </div>
-                            <span className="text-[10px] text-slate-400 mt-0.5 block">{totalQuantityScore} / {totalAssignedScore} Điểm</span>
-                          </div>
-
-                          <div className="p-3 bg-white rounded-lg border border-slate-100">
-                            <strong>B. Chỉ số chất lượng (B):</strong>
-                            <div className="font-mono text-slate-800 text-sm font-extrabold mt-1">
-                              {(B * 100).toFixed(2)}% ({B.toFixed(3)})
-                            </div>
-                            <span className="text-[10px] text-slate-400 mt-0.5 block">{totalQualityScore.toFixed(1)} / {totalAssignedScore} Điểm</span>
-                          </div>
-
-                          <div className="p-3 bg-white rounded-lg border border-slate-100">
-                            <strong>C. Chỉ số hoàn thành tiến độ (C):</strong>
-                            <div className="font-mono text-slate-800 text-sm font-extrabold mt-1">
-                              {(C * 100).toFixed(2)}% ({C.toFixed(3)})
-                            </div>
-                            <span className="text-[10px] text-slate-400 mt-0.5 block">{totalSpeedScore} / {totalAssignedScore} Điểm</span>
-                          </div>
-                        </div>
-
-                        {/* Interactive E Value input (Page 8 E indicator) */}
-                        <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between text-xs font-sans gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-700">Điểm tiêu chí chung (E) [Tối đa 30]:</span>
-                            <input 
+                      <div className="pt-2 border-t border-dashed border-slate-150">
+                        <div className="flex items-center justify-between font-extrabold text-slate-800 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                          <span>2. Tiêu chí chung (E):</span>
+                          <div className="flex items-center gap-1.5 no-print">
+                            <input
+                              type="range"
+                              min={0}
+                              max={30}
+                              value={statsEValue}
+                              onChange={(e) => setStatsEValue(parseInt(e.target.value))}
+                              className="w-20 accent-red-650 cursor-pointer"
+                            />
+                            <input
                               type="number"
                               min={0}
                               max={30}
-                              value={kpiEValue}
-                              onChange={(e) => {
-                                const val = Math.min(30, Math.max(0, parseInt(e.target.value) || 0));
-                                setKpiEValue(val);
-                              }}
-                              className="w-12 p-1 border border-slate-300 rounded font-mono text-center text-slate-850 font-bold focus:ring-2 focus:ring-red-500/10"
+                              value={statsEValue}
+                              onChange={(e) => setStatsEValue(parseInt(e.target.value) || 0)}
+                              className="w-10 text-center font-mono font-bold border border-slate-250 rounded p-0.5"
                             />
                           </div>
-                          <span className="text-[10px] text-slate-400 font-mono italic">*{formulaLabel}</span>
+                          <span className="hidden print:inline font-mono">{statsEValue} điểm</span>
                         </div>
+                        <p className="mt-1 pl-2 text-slate-500 italic">
+                          Tiêu chí đánh giá chung (tối đa 30 điểm). Hãy trượt thanh cuộn để điều chỉnh.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
-                        {/* Total Score output matching slide 8 formulas exactly */}
-                        <div className="bg-red-50/50 p-4 rounded-lg border border-red-105 flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3.5">
-                          <div>
-                            <span className="text-slate-500 text-[10.5px] uppercase tracking-wider font-extrabold block">TỔNG ĐIỂM CHUNG TÍNH KPI</span>
-                            <strong className="text-slate-805 text-sm block mt-1 font-extrabold">
-                              KPI = (A + B + C) / 3 = ({A.toFixed(2)} + {B.toFixed(2)} + {C.toFixed(2)}) / 3 = <span className="text-red-650 font-mono">{stableKpiRounded}%</span>
-                            </strong>
-                            <span className="text-[11px] text-slate-650 block mt-1">
-                              Điểm đánh giá xếp loại cuối: E + (KPI x 0,7) = <span className="font-mono font-bold text-slate-800">{kpiEValue} + ({stableKpiRounded} x 0,7) = {totalEvaluationScore.toFixed(3)} Điểm</span>
-                            </span>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOfficers(officers.map(o => o.id === targetOfficer.id ? { ...o, kpi: stableKpiRounded } : o));
-                              setOfficerKpiTasks({ ...officerKpiTasks, [targetOfficer.id]: tasksList });
-                              alert(`Lưu đánh giá thành công! Chỉ số KPI của Đ/c ${targetOfficer.fullName.split(' ').pop()} đã được cập nhật thành ${stableKpiRounded}%`);
-                            }}
-                            className="px-5 py-2.5 bg-red-650 hover:bg-red-700 text-white rounded-lg text-xs font-black shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer uppercase tracking-wider"
-                          >
-                            <Save className="w-4 h-4" />
-                            Ghi kết quả lưu trữ
-                          </button>
+                  {/* Final Class Badge card */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 flex flex-col justify-between shadow-xs">
+                    <div className="space-y-2">
+                      <span className="text-[11px] font-bold uppercase text-slate-500 block tracking-wide">
+                        🏆 Kết quả phân loại thi đua tháng {selectedStatsMonth}
+                      </span>
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-semibold text-slate-600">
+                          Tổng điểm dùng trong đánh giá, xếp loại đối với đồng chí <b>{currentOfficer.fullName}</b>:
+                        </div>
+                        <div className="font-mono text-3xl font-extrabold text-slate-800 flex items-baseline gap-1.5">
+                          {totalScore.toFixed(2)}
+                          <span className="text-xs text-slate-500 font-sans font-medium">điểm</span>
+                        </div>
+                        <div className="text-[11px] text-slate-450 italic mt-1 bg-slate-50 p-2 rounded-md border border-slate-100 font-mono">
+                          Công thức: Điểm = E + KPI x 0,7 = {statsEValue} + {kpiRounded} x 0,7 = {totalScore.toFixed(2)}
                         </div>
                       </div>
                     </div>
-                  );
-                })()
-              ) : (
-                <div className="bg-white p-8 rounded-xl border border-dashed border-slate-205 text-center text-slate-400 py-32 text-xs shadow-xs no-print flex flex-col justify-center items-center">
-                  <Award className="w-12 h-12 text-slate-300 mb-3" />
-                  <p className="font-extrabold text-slate-800 text-sm uppercase">Bảng chấm điểm KPI Chi tiết</p>
-                  <p className="text-slate-500 text-[11px] mt-1 max-w-sm">
-                    Hãy bấm chọn từng cán bộ chiến sĩ ở danh sách bên để chấm điểm chi tiết chuyên môn theo sản phẩm công tác mẫu của Hướng dẫn số 20-HD/ĐUCA.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* VIEWPORT 3: Thống kê nghiệp vụ (Original charts & tables logic) */}
-      <div className="space-y-4 pt-6 border-t border-slate-100">
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
-          <TrendingUp className="w-5 h-5 text-red-600" />
-          <h3 className="text-base font-extrabold text-slate-800 uppercase tracking-tight">Thống kê & Biểu đồ</h3>
-        </div>
-        <div className="space-y-6" id="reports-statistics-summary">
-          {/* Statistics summary metric grid */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-100 flex items-center gap-4 card-print shadow-xs">
-              <div className="p-3 rounded-lg bg-red-50 text-red-650">
-                <Flame className="w-6 h-6" />
-              </div>
-              <div>
-                <span className="text-slate-400 text-xs uppercase tracking-wider font-extrabold block">Công tác kiểm tra</span>
-                <strong className="text-slate-800 font-mono text-xl">{activeInspections} cuộc</strong>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-slate-100 flex items-center gap-4 card-print shadow-xs">
-              <div className="p-3 rounded-lg bg-blue-50 text-blue-600">
-                <Users className="w-6 h-6" />
-              </div>
-              <div>
-                <span className="text-slate-400 text-xs uppercase tracking-wider font-extrabold block">KPI quân binh trung vị</span>
-                <strong className="text-slate-800 font-mono text-xl">88.5% Điểm tốt</strong>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-slate-100 flex items-center gap-4 card-print shadow-xs">
-              <div className="p-3 rounded-lg bg-emerald-50 text-emerald-600">
-                <CheckSquare className="w-6 h-6" />
-              </div>
-              <div>
-                <span className="text-slate-405 text-xs uppercase tracking-wider font-extrabold block">Khắc phục xong đề xuất</span>
-                <strong className="text-slate-800 font-mono text-xl">{successRate}% Chỉ tiêu</strong>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-slate-100 flex items-center gap-4 card-print shadow-xs">
-              <div className="p-3 rounded-lg bg-amber-50 text-amber-600">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <div>
-                <span className="text-slate-405 text-xs uppercase tracking-wider font-extrabold block">Công việc tồn đọng</span>
-                <strong className="text-slate-800 font-mono text-xl text-red-600">{overduedTasks} Việc trễ hạn</strong>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white border border-slate-105 rounded-xl shadow-xs overflow-hidden">
-            {/* Sub-navigation of stats list */}
-            <div className="bg-slate-50 border-b border-slate-105 p-3 flex gap-2 no-print overflow-x-auto text-xs">
-              <button
-                id="rep-tab-kpi"
-                onClick={() => setReportType('kpi')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer hover:bg-slate-100 ${reportType === 'kpi' ? 'bg-white text-red-650 border border-slate-200 shadow-sm' : 'text-slate-500'}`}
-              >
-                Thống kê Hiệu suất (KPI)
-              </button>
-              <button
-                id="rep-tab-facilities"
-                onClick={() => setReportType('facilities')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer hover:bg-slate-100 ${reportType === 'facilities' ? 'bg-white text-red-650 border border-slate-200 shadow-sm' : 'text-slate-500'}`}
-              >
-                Thống kê Cơ sở & Kiểm tra
-              </button>
-              <button
-                id="rep-tab-rescue"
-                onClick={() => setReportType('rescue')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer hover:bg-slate-100 ${reportType === 'rescue' ? 'bg-white text-red-650 border border-slate-200 shadow-sm' : 'text-slate-500'}`}
-              >
-                Thống kê Thiết bị & Phương án
-              </button>
-              <button
-                id="rep-tab-documents"
-                onClick={() => setReportType('documents')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer hover:bg-slate-100 ${reportType === 'documents' ? 'bg-white text-red-650 border border-slate-200 shadow-sm' : 'text-slate-500'}`}
-              >
-                Thống kê Văn thư Đến/Đi
-              </button>
-            </div>
-
-            <div className="p-6 space-y-6 flex flex-col justify-start text-xs">
-              {reportType === 'kpi' && (
-                <div className="space-y-6" id="report-kpi-subpanel">
-                  <div className="flex justify-between items-center border-b pb-2 flex-wrap gap-2">
-                    <div>
-                      <h4 className="font-extrabold text-sm text-slate-800 uppercase tracking-wide">
-                        Xếp hạng KPI chỉ số năng lực của Cán bô, Chiến Sĩ PCCC 2026
-                      </h4>
-                      <p className="text-slate-500 text-[11px] mt-0.5">Biểu đồ tổng hòa điểm KPI và số lượng đầu việc bám trực của từng quân số.</p>
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-500 uppercase">Xếp loại cá nhân:</span>
+                      <span className={`px-4 py-1 rounded-full font-extrabold text-xs uppercase tracking-wide border ${badgeColor}`}>
+                        {classification}
+                      </span>
                     </div>
+                  </div>
+                </div>
+              </div>
+            );
+          } else {
+            // --- ANNUAL COMPREHENSIVE KPI REPORT VIEW (selectedStatsMonth === 0) ---
+            const annualData = getAnnualStatsForOfficer(currentOfficer.id, selectedStatsYear);
+            
+            // Annual aggregates
+            let totalKpiSum = 0;
+            let totalScoreSum = 0;
+            annualData.forEach(row => {
+              totalKpiSum += row.kpi;
+              totalScoreSum += row.totalScore;
+            });
+            const annualAvgKpi = totalKpiSum / 12;
+            const annualAvgScore = totalScoreSum / 12;
+
+            let annualClassification = 'Không hoàn thành';
+            let annualBadgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
+            if (annualAvgScore >= 90) {
+              annualClassification = 'Hoàn thành Xuất sắc';
+              annualBadgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+            } else if (annualAvgScore >= 70) {
+              annualClassification = 'Hoàn thành Tốt';
+              annualBadgeColor = 'bg-indigo-50 text-indigo-800 border-indigo-200';
+            } else if (annualAvgScore >= 50) {
+              annualClassification = 'Hoàn thành Nhiệm vụ';
+              annualBadgeColor = 'bg-amber-50 text-amber-800 border-amber-200';
+            }
+
+            // Exporter for annual
+            const handleExportAnnualKpiExcelLocal = () => {
+              const todayStrInVietnamese = `Tây Ninh, ngày ${String(new Date().getDate()).padStart(2, '0')} tháng ${String(new Date().getMonth() + 1).padStart(2, '0')} năm ${new Date().getFullYear()}`;
+
+              let htmlContent = `
+                <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+                <head>
+                <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+                <style>
+                  body { font-family: "Times New Roman", Times, serif; }
+                  .main-table { width: 100%; border-collapse: collapse; font-size: 11pt; }
+                  .main-table th { border: 1px solid #000000; padding: 10px 6px; font-weight: bold; text-align: center; background-color: #f2f2f2; }
+                  .main-table td { border: 1px solid #000000; padding: 8px 6px; text-align: center; vertical-align: middle; }
+                </style>
+                </head>
+                <body>
+                  <h2 style="text-align: center; text-transform: uppercase;">BẢNG TỔNG HỢP KPI CẢ NĂM ${selectedStatsYear}</h2>
+                  <h3 style="text-align: center;">Cán bộ chiến sĩ: ${currentOfficer.position} ${currentOfficer.fullName}</h3>
+                  
+                  <table class="main-table" border="1" style="border-collapse: collapse; border: 1px solid black; width: 100%;">
+                    <thead>
+                      <tr style="background-color: #f2f2f2;">
+                        <th>Tháng</th>
+                        <th>Tổng điểm giao</th>
+                        <th>Điểm hoàn thành</th>
+                        <th>Chỉ số Số lượng (A)</th>
+                        <th>Chỉ số Chất lượng (B)</th>
+                        <th>Chỉ số Tiến độ (C)</th>
+                        <th>Hiệu suất KPI (%)</th>
+                        <th>Điểm tiêu chí (E)</th>
+                        <th>Tổng điểm đánh giá</th>
+                        <th>Xếp loại</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+              `;
+
+              annualData.forEach(row => {
+                htmlContent += `
+                  <tr>
+                    <td>Tháng ${row.month}</td>
+                    <td>${row.totalAssignedScore}</td>
+                    <td>${row.totalQuantityScore}</td>
+                    <td>${row.A.toFixed(3)}</td>
+                    <td>${row.B.toFixed(3)}</td>
+                    <td>${row.C.toFixed(3)}</td>
+                    <td style="font-weight: bold; color: green;">${row.kpi}%</td>
+                    <td>${row.e}</td>
+                    <td style="font-weight: bold; color: blue;">${row.totalScore.toFixed(2)}</td>
+                    <td style="font-weight: bold;">${row.classification}</td>
+                  </tr>
+                `;
+              });
+
+              htmlContent += `
+                  <tr style="background-color: #f9f9f9; font-weight: bold;">
+                    <td>TRUNG BÌNH CẢ NĂM</td>
+                    <td colspan="5"></td>
+                    <td style="color: green;">${annualAvgKpi.toFixed(2)}%</td>
+                    <td>30</td>
+                    <td style="color: blue;">${annualAvgScore.toFixed(2)}</td>
+                    <td>${annualClassification.toUpperCase()}</td>
+                  </tr>
+                </tbody>
+                </table>
+
+                <div style="margin-top: 25px; font-size: 11pt; line-height: 1.5;">
+                  <p><b>TỔNG HỢP KẾT LUẬN CUỐI NĂM:</b></p>
+                  <p>- Hiệu suất KPI bình quân năm ${selectedStatsYear}: <b>${annualAvgKpi.toFixed(2)}%</b></p>
+                  <p>- Tổng điểm xếp loại bình quân năm ${selectedStatsYear}: <b>${annualAvgScore.toFixed(2)}</b></p>
+                  <p>- Xếp loại cả năm: <b>${annualClassification.toUpperCase()}</b></p>
+                </div>
+                </body>
+                </html>
+              `;
+
+              const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.setAttribute('download', `KPI_CaNam_${selectedStatsYear}_${currentOfficer.fullName.replace(/\s+/g, '_')}.xls`);
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            };
+
+            const handleExportAnnualKpiWordLocal = () => {
+              const todayStrInVietnamese = `Tây Ninh, ngày ${String(new Date().getDate()).padStart(2, '0')} tháng ${String(new Date().getMonth() + 1).padStart(2, '0')} năm ${new Date().getFullYear()}`;
+
+              let htmlContent = `
+                <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+                <head>
+                <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+                <style>
+                  @page {
+                    size: A4 portrait;
+                    margin: 1.5cm 1.5cm 1.5cm 1.5cm;
+                  }
+                  body { font-family: "Times New Roman", Times, serif; font-size: 11pt; line-height: 1.3; }
+                  .header-table { width: 100%; border: none !important; margin-bottom: 25px; }
+                  .header-table td { border: none !important; padding: 2px; text-align: center; font-size: 10.5pt; vertical-align: top; }
+                  .title-section { text-align: center; margin-bottom: 20px; }
+                  .doc-title { font-size: 14pt; font-weight: bold; text-transform: uppercase; margin: 0; }
+                  .doc-subtitle { font-size: 11.5pt; font-style: italic; margin-top: 5px; margin-bottom: 0; }
+                  .info-p { font-size: 11pt; font-weight: bold; margin-top: 5px; margin-bottom: 15px; text-align: center; }
+                  .main-table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-top: 15px; }
+                  .main-table th { border: 1px solid #000000; padding: 8px 4px; font-weight: bold; text-align: center; background-color: #f2f2f2; }
+                  .main-table td { border: 1px solid #000000; padding: 7px 4px; text-align: center; vertical-align: middle; }
+                  .summary-box { margin-top: 20px; border: 1px dashed #777; padding: 10px; font-size: 11pt; background-color: #fafafa; }
+                  .signature-table { width: 100%; border: none !important; margin-top: 35px; }
+                  .signature-table td { border: none !important; text-align: center; vertical-align: top; font-size: 11pt; width: 50%; }
+                </style>
+                </head>
+                <body>
+                  <table class="header-table">
+                    <tr>
+                      <td style="width: 45%;">
+                        <b>CÔNG AN TỈNH TÂY NINH</b><br/>
+                        <b>PHÒNG CẢNH SÁT PCCC & CNCH</b><br/>
+                        <span>ĐỘI CC & CNCH KV TÂN AN</span><br/>
+                        <span>*</span>
+                      </td>
+                      <td style="width: 55%; font-weight: bold;">
+                        <b>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</b><br/>
+                        <span style="font-size: 11pt;">Độc lập - Tự do - Hạnh phúc</span><br/>
+                        <span>---------------</span>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <div class="title-section">
+                    <h2 class="doc-title">BẢNG TỔNG HỢP & PHÂN LOẠI KPI CẢ NĂM</h2>
+                    <p class="doc-subtitle">Năm ${selectedStatsYear}</p>
+                    <p class="info-p">Cán bộ chiến sĩ: ${currentOfficer.position} ${currentOfficer.fullName}</p>
+                  </div>
+
+                  <table class="main-table">
+                    <thead>
+                      <tr style="background-color: #f2f2f2;">
+                        <th style="width: 80px;">Tháng</th>
+                        <th>Tổng điểm giao</th>
+                        <th>Điểm hoàn thành</th>
+                        <th>Chỉ số Số lượng (A)</th>
+                        <th>Chỉ số Chất lượng (B)</th>
+                        <th>Chỉ số Tiến độ (C)</th>
+                        <th>Hiệu suất KPI (%)</th>
+                        <th>Điểm tiêu chí (E)</th>
+                        <th>Tổng điểm đánh giá</th>
+                        <th>Xếp loại</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+              `;
+
+              annualData.forEach(row => {
+                htmlContent += `
+                  <tr>
+                    <td><b>Tháng ${row.month}</b></td>
+                    <td>${row.totalAssignedScore}</td>
+                    <td>${row.totalQuantityScore}</td>
+                    <td>${row.A.toFixed(3)}</td>
+                    <td>${row.B.toFixed(3)}</td>
+                    <td>${row.C.toFixed(3)}</td>
+                    <td style="font-weight: bold; color: #16a34a;">${row.kpi}%</td>
+                    <td>${row.e}</td>
+                    <td style="font-weight: bold; color: #2563eb;">${row.totalScore.toFixed(2)}</td>
+                    <td style="font-weight: bold;">${row.classification}</td>
+                  </tr>
+                `;
+              });
+
+              htmlContent += `
+                    <tr style="background-color: #eeeeee; font-weight: bold;">
+                      <td>TRUNG BÌNH</td>
+                      <td colspan="5"></td>
+                      <td style="color: #16a34a;">${annualAvgKpi.toFixed(2)}%</td>
+                      <td>30</td>
+                      <td style="color: #2563eb;">${annualAvgScore.toFixed(2)}</td>
+                      <td style="text-transform: uppercase; color: #b91c1c;">${annualClassification}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <div class="summary-box">
+                  <p style="margin: 0 0 8px 0;"><b>TỔNG HỢP KẾT LUẬN CẢ NĂM ${selectedStatsYear}:</b></p>
+                  <p style="margin: 0 0 8px 15px;">- Hiệu suất KPI bình quân cả năm: <b>${annualAvgKpi.toFixed(2)}%</b></p>
+                  <p style="margin: 0 0 8px 15px;">- Tổng điểm đánh giá bình quân cả năm: <b>${annualAvgScore.toFixed(2)} điểm</b></p>
+                  <p style="margin: 0 0 0 15px;">- Xếp loại thi đua năm ${selectedStatsYear}: <b><span style="color: #b91c1c; text-transform: uppercase;">${annualClassification.toUpperCase()}</span></b></p>
+                </div>
+
+                <table class="signature-table">
+                  <tr>
+                    <td>
+                      <b>BAN CHỈ HUY ĐỘI PHÊ DUYỆT</b><br/>
+                      <span style="font-size: 9pt; font-style: italic;">(Ký, ghi rõ họ tên)</span>
+                      <div style="height: 80px;"></div>
+                    </td>
+                    <td>
+                      <span style="font-style: italic;">${todayStrInVietnamese}</span><br/>
+                      <b>CÁN BỘ LẬP BẢNG</b><br/>
+                      <span style="font-size: 9pt; font-style: italic;">(Ký, ghi rõ họ tên)</span>
+                      <div style="height: 80px;"></div>
+                      <p style="margin: 0; font-weight: bold;">${currentOfficer.fullName}</p>
+                    </td>
+                  </tr>
+                </table>
+                </body>
+                </html>
+              `;
+
+              const blob = new Blob([htmlContent], { type: 'application/msword;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.setAttribute('download', `KPI_CaNam_${selectedStatsYear}_${currentOfficer.fullName.replace(/\s+/g, '_')}.doc`);
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            };
+
+            return (
+              <div className="space-y-6">
+                {/* Actions Toolbar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 no-print">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-600">Chế độ xem tổng hợp:</span>
                     <button
-                      id="print-kpi-details"
-                      onClick={handlePrint}
-                      className="px-2.5 py-1 bg-slate-100 text-[#1e293b] text-xs font-bold hover:bg-slate-202 rounded no-print cursor-pointer border shadow-3xs"
+                      onClick={() => setStatsViewMode('summary')}
+                      className={`px-3 py-1 text-xs font-bold rounded-lg cursor-pointer transition-all ${
+                        statsViewMode === 'summary' ? 'bg-slate-800 text-white shadow-xs' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                      }`}
                     >
-                      In bảng hiệu suất
+                      Bảng tổng hợp 12 tháng
+                    </button>
+                    <button
+                      onClick={() => setStatsViewMode('detail')}
+                      className={`px-3 py-1 text-xs font-bold rounded-lg cursor-pointer transition-all ${
+                        statsViewMode === 'detail' ? 'bg-slate-800 text-white shadow-xs' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                      }`}
+                    >
+                      Đồ thị trực quan KPI
                     </button>
                   </div>
 
-                  {/* Chart */}
-                  <div className="h-64 pt-2 no-print">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={officerKpiData} margin={{ left: -20, right: 10, top: 10, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="name" fontSize={11} stroke="#94a3b8" />
-                        <YAxis domain={[0, 100]} fontSize={11} stroke="#94a3b8" />
-                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#f8fafc' }} />
-                        <Bar dataKey="Điểm KPI" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleExportAnnualKpiExcelLocal}
+                      className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <FileDown className="w-3.5 h-3.5" /> Xuất Excel Cả Năm
+                    </button>
+                    <button
+                      id="export-annual-kpi-word-btn"
+                      onClick={handleExportAnnualKpiWordLocal}
+                      className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                      title="Xuất tổng hợp cả năm ra định dạng Microsoft Word (.doc)"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> Xuất Word Cả Năm
+                    </button>
+                    <button
+                      onClick={() => window.print()}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <Printer className="w-3.5 h-3.5" /> In báo cáo năm
+                    </button>
                   </div>
+                </div>
 
-                  {/* Printable Table */}
-                  <div className="overflow-hidden border border-slate-150 rounded" id="kpi-printable-table">
-                    <table className="w-full text-left text-xs text-slate-700">
-                      <thead className="bg-slate-50 text-[10px] text-slate-450 uppercase font-black tracking-wider border-b">
-                        <tr>
-                          <th className="p-3">Họ và Tên cán bộ</th>
-                          <th className="p-3">Cấp bậc / Đơn vị</th>
-                          <th className="p-3 text-center">Xử lý đầu việc</th>
-                          <th className="p-3 text-right">Điểm KPI gặt hái</th>
+                {/* print layout title */}
+                <div className="hidden print:block text-center space-y-1 mb-4">
+                  <div className="text-xs uppercase font-bold text-slate-500">
+                    PHÒNG CẢNH SÁT PCCC VÀ CNCH - ĐỘI CHỮA CHÁY KV TÂN AN
+                  </div>
+                  <h2 className="text-lg font-bold text-slate-900 uppercase">
+                    BÁO CÁO TỔNG HỢP & PHÂN LOẠI KPI CẢ NĂM {selectedStatsYear}
+                  </h2>
+                  <div className="text-sm font-semibold text-slate-700">
+                    Cán bộ chiến sĩ: {currentOfficer.position} {currentOfficer.fullName}
+                  </div>
+                </div>
+
+                {/* Render either tabular or graphical view */}
+                {statsViewMode === 'summary' ? (
+                  /* TABULAR COMPREHENSIVE VIEW */
+                  <div className="overflow-x-auto rounded-xl border border-slate-300 shadow-sm bg-white">
+                    <table className="w-full text-left border-collapse font-sans text-xs min-w-[1000px]">
+                      <thead>
+                        <tr className="bg-slate-800 text-white font-bold border-b border-slate-300 text-center">
+                          <th className="p-3 w-28 text-left pl-4">Tháng</th>
+                          <th className="p-3 bg-slate-700">Tổng điểm giao</th>
+                          <th className="p-3 bg-slate-700">Điểm hoàn thành</th>
+                          <th className="p-3">Số lượng (A)</th>
+                          <th className="p-3">Chất lượng (B)</th>
+                          <th className="p-3">Tiến độ (C)</th>
+                          <th className="p-3 bg-emerald-950/80">KPI (%)</th>
+                          <th className="p-3">Điểm chung (E)</th>
+                          <th className="p-3 bg-indigo-950/80">Tổng điểm đánh giá</th>
+                          <th className="p-3">Xếp loại thi đua</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y font-semibold">
-                        {officers.map(off => (
-                          <tr key={off.id} className="hover:bg-slate-50/50">
-                            <td className="p-3 font-extrabold text-slate-850">{off.fullName}</td>
-                            <td className="p-3 text-slate-500">{off.rank} | {off.unit}</td>
-                            <td className="p-3 text-center font-mono">{tasks.filter(t => t.assigneeId === off.id).length} việc</td>
-                            <td className="p-3 text-right font-mono text-red-650 font-extrabold">{off.kpi}%</td>
+                      <tbody>
+                        {annualData.map(row => (
+                          <tr key={row.month} className="border-b border-slate-200 hover:bg-slate-50/50 font-medium text-center">
+                            <td className="p-2.5 font-bold text-slate-700 bg-slate-50/40 text-left pl-4">Tháng {row.month}</td>
+                            <td className="p-2.5 font-mono text-slate-600 bg-slate-100/10">{row.totalAssignedScore}</td>
+                            <td className="p-2.5 font-mono text-slate-600 bg-slate-100/10">{row.totalQuantityScore}</td>
+                            <td className="p-2.5 font-mono text-slate-800">{row.A.toFixed(3)}</td>
+                            <td className="p-2.5 font-mono text-slate-800">{row.B.toFixed(3)}</td>
+                            <td className="p-2.5 font-mono text-slate-800">{row.C.toFixed(3)}</td>
+                            <td className="p-2.5 font-mono font-extrabold text-emerald-700 bg-emerald-50/20">{row.kpi}%</td>
+                            <td className="p-2.5 font-mono text-slate-850">{row.e}</td>
+                            <td className="p-2.5 font-mono font-extrabold text-indigo-700 bg-indigo-50/20">{row.totalScore.toFixed(2)}</td>
+                            <td className="p-2">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                row.totalScore >= 90
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : row.totalScore >= 70
+                                  ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                  : row.totalScore >= 50
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}>
+                                {row.totalScore >= 90 ? 'Xuất sắc' : row.totalScore >= 70 ? 'Tốt' : row.totalScore >= 50 ? 'Khá' : 'Yêu'}
+                              </span>
+                            </td>
                           </tr>
                         ))}
+
+                        {/* Grand annual average row */}
+                        <tr className="bg-slate-800 text-white font-extrabold text-center border-t border-slate-300">
+                          <td className="p-3 text-left pl-4 uppercase">Bình quân cả năm:</td>
+                          <td className="p-3" colSpan={5}>-</td>
+                          <td className="p-3 font-mono text-emerald-300 text-sm bg-emerald-950/20">{annualAvgKpi.toFixed(2)}%</td>
+                          <td className="p-3 font-mono">30</td>
+                          <td className="p-3 font-mono text-indigo-300 text-sm bg-indigo-950/20">{annualAvgScore.toFixed(2)}</td>
+                          <td className="p-3 text-xs uppercase tracking-wide text-amber-300">{annualClassification.replace('Hoàn thành ', '')}</td>
+                        </tr>
                       </tbody>
                     </table>
                   </div>
-                </div>
-              )}
-
-              {reportType === 'facilities' && (
-                <div className="space-y-6" id="report-facilities-subpanel">
-                  <div className="flex justify-between items-center border-b pb-2 flex-wrap gap-2">
-                    <div>
-                      <h4 className="font-extrabold text-sm text-slate-800 uppercase tracking-wide">
-                        Phân phối mật độ Cơ Sở quản lý & Công tác Tuần tra
-                      </h4>
-                      <p className="text-slate-500 text-[11px] mt-0.5">Biểu đồ tổng hòa phân vùng địa bàn và chất lượng kiểm tra của cán bộ.</p>
+                ) : (
+                  /* GRAPHICAL KPI TREND CHART VIEW */
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <span className="text-xs font-bold uppercase text-slate-600">📊 Biểu đồ so sánh Hiệu suất KPI (%) và Tổng điểm theo các tháng</span>
+                      <div className="flex items-center gap-4 text-[11px] font-bold">
+                        <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-rose-500 rounded-sm"></span> Hiệu suất KPI (%)</span>
+                        <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-500 rounded-sm"></span> Tổng điểm xếp loại</span>
+                      </div>
                     </div>
-                    <button
-                      id="export-fac-csv"
-                      onClick={() => handleExportCSV('facilities')}
-                      className="px-2.5 py-1 bg-slate-100 text-[#1e293b] text-xs font-bold rounded no-print hover:bg-slate-200 border cursor-pointer"
-                    >
-                      Xuất danh sách CSV
-                    </button>
-                  </div>
-
-                  {/* Pie and stats logic side by side */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                    <div className="h-60 no-print">
+                    <div className="h-96">
                       <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={wardPieData}
-                            cx="55%"
-                            cy="50%"
-                            innerRadius={60}
-                            outerRadius={90}
-                            paddingAngle={4}
-                            dataKey="value"
-                          >
-                            {wardPieData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
+                        <BarChart
+                          data={annualData.map(row => ({
+                            name: `T.${row.month}`,
+                            'KPI (%)': row.kpi,
+                            'Tổng điểm': parseFloat(row.totalScore.toFixed(2))
+                          }))}
+                          margin={{ top: 20, right: 30, left: 10, bottom: 5 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="name" stroke="#64748b" fontSize={11} fontWeight="bold" />
+                          <YAxis domain={[0, 110]} stroke="#64748b" fontSize={11} fontWeight="bold" />
+                          <Tooltip 
+                            contentStyle={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
+                            labelClassName="font-extrabold text-slate-800"
+                          />
+                          <Bar dataKey="KPI (%)" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={35} />
+                          <Bar dataKey="Tổng điểm" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={35} />
+                        </BarChart>
                       </ResponsiveContainer>
                     </div>
+                  </div>
+                )}
 
-                    <div className="space-y-2.5 font-sans">
-                      <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">Phân tích theo Phường/Xã địa phương</span>
-                      
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        {wardPieData.map((w, idx) => (
-                          <div key={idx} className="p-2 border border-slate-100 hover:border-slate-205 rounded bg-slate-50/35 flex justify-between items-center">
-                            <div className="flex items-center gap-1.5 font-medium">
-                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
-                              <span className="text-slate-655 truncate text-[11px]">{w.name}</span>
-                            </div>
-                            <strong className="font-mono text-slate-800">{w.value} cơ sở</strong>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                {/* Annual Classification Scoreboards card */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-2 shadow-xs text-center flex flex-col justify-center py-6">
+                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Hiệu suất KPI Trung bình</div>
+                    <div className="text-4xl font-extrabold text-emerald-600 font-mono tracking-tight">{annualAvgKpi.toFixed(2)}%</div>
+                    <p className="text-[11px] text-slate-500 font-medium">Bình quân hiệu năng công tác qua 12 tháng</p>
                   </div>
 
-                  {/* Table list inspects print */}
-                  <div className="border border-slate-150 rounded overflow-hidden" id="inspections-printable-table">
-                    <table className="w-full text-left text-xs font-semibold text-slate-700">
-                      <thead className="bg-slate-50 border-b uppercase text-[9.5px] font-black text-slate-450 tracking-wider font-sans">
-                        <tr>
-                          <th className="p-3">Cơ sở thụ kiểm</th>
-                          <th className="p-3">Ngày kiểm tra</th>
-                          <th className="p-3">Đoàn Đặc trách</th>
-                          <th className="p-3 text-right">Biên bản kết luận</th>
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-2 shadow-xs text-center flex flex-col justify-center py-6">
+                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tổng điểm Trung bình năm</div>
+                    <div className="text-4xl font-extrabold text-indigo-600 font-mono tracking-tight">{annualAvgScore.toFixed(2)}</div>
+                    <p className="text-[11px] text-slate-500 font-medium">Điểm số trung bình cộng dùng xếp thi đua</p>
+                  </div>
+
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-3 shadow-xs text-center flex flex-col justify-between py-6">
+                    <div className="space-y-1">
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Xếp loại cả năm</div>
+                      <div className="flex justify-center">
+                        <span className={`px-4 py-1.5 rounded-full font-extrabold text-xs uppercase tracking-wider border ${annualBadgeColor}`}>
+                          {annualClassification}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-[10.5px] text-slate-450 italic">Áp dụng cho thi đua danh hiệu chiến sĩ thi đua, chiến sĩ tiên tiến</p>
+                  </div>
+                </div>
+
+                {/* Signatures simulation section for official look */}
+                <div className="hidden print:block pt-12">
+                  <table className="w-full text-center border-none font-sans text-sm">
+                    <tbody>
+                      <tr>
+                        <td className="w-1/2 align-top font-bold uppercase py-4" style={{ border: 'none' }}>
+                          BAN CHỈ HUY ĐỘI PHÊ DUYỆT<br/>
+                          <span className="font-medium text-xs lowercase italic text-slate-400">(Ký và ghi rõ họ tên)</span>
+                        </td>
+                        <td className="w-1/2 align-top font-bold uppercase py-4" style={{ border: 'none' }}>
+                          CÁN BỘ LẬP BẢNG<br/>
+                          <span className="font-medium text-xs lowercase italic text-slate-400">(Ký và ghi rõ họ tên)</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="h-28" style={{ border: 'none' }}></td>
+                        <td className="h-28" style={{ border: 'none' }}></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          }
+        })()}
+      </div>
+
+          {/* Bảng tổng hợp tất cả nội dung của cán bộ theo từng tháng vào bảng theo mẫu này */}
+          {/* Bảng tổng hợp tất cả nội dung của cán bộ theo từng tháng vào bảng theo mẫu này */}
+          {/* Bảng tổng hợp tất cả nội dung của cán bộ theo từng tháng vào bảng theo mẫu này */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6 font-sans" id="squad-monthly-kpi-summary">
+            {(() => {
+              if (activeOfficers.length === 0) {
+                return (
+                  <div className="p-8 text-center text-slate-500 font-bold bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    Vui lòng khởi tạo danh sách Cán bộ Đội để xem và quản lý bảng tổng hợp nhiệm vụ tháng.
+                  </div>
+                );
+              }
+
+              const handleExportMonthlyKpiExcelLocal = () => {
+                let html = `<html><head><meta charset="utf-8"/><style>table{border-collapse:collapse;font-family:"Times New Roman",serif;}th,td{border:1px solid #000;padding:6px;font-size:10pt;}th{background:#f2f2f2;font-weight:bold;}</style></head><body>`;
+                html += `<h3 style="text-align:center;">BẢNG TỔNG HỢP KPI THÁNG ${selectedStatsMonth}/${selectedStatsYear} TOÀN ĐỘI</h3>`;
+                html += `<table border="1"><thead><tr><th>STT</th><th>Đồng chí</th><th>Nội dung nhiệm vụ</th><th>Sản phẩm công việc</th><th>Điểm SP</th><th>Số lượng giao</th><th>Tổng điểm giao</th><th>SL hoàn thành</th><th>Điểm SL (A)</th><th>Chất lượng (B)</th><th>Tiến độ (C)</th><th>Điểm KPI (%)</th><th>Điểm E</th><th>Tổng điểm</th><th>Xếp loại</th></tr></thead><tbody>`;
+                
+                activeOfficers.forEach((off, oIdx) => {
+                  const tasks = getKpiTasksForOfficer(off.id, selectedStatsYear, selectedStatsMonth);
+                  const oE = officerEValues[off.id] !== undefined ? officerEValues[off.id] : 30;
+                  
+                  let sumAssigned = 0, sumCompletedQty = 0, sumCompletedScore = 0, sumQual = 0, sumSpeed = 0;
+                  tasks.forEach(task => {
+                    sumAssigned += task.assignedQty * task.scorePerProduct;
+                    sumCompletedQty += task.completedQty;
+                    sumCompletedScore += task.completedQty * task.scorePerProduct;
+                    sumQual += task.completedQty * task.scorePerProduct * task.qualityFactor;
+                    sumSpeed += task.completedQty * task.scorePerProduct * task.speedFactor;
+                  });
+
+                  const A = sumAssigned > 0 ? (sumCompletedScore / sumAssigned) : 1;
+                  const B = sumAssigned > 0 ? (sumQual / sumAssigned) : 1;
+                  const C = sumAssigned > 0 ? (sumSpeed / sumAssigned) : 1;
+
+                  const kpiRounded = parseFloat((((A + B + C) / 3) * 100).toFixed(2));
+                  const totalScore = oE + kpiRounded * 0.7;
+
+                  let classification = 'Không hoàn thành';
+                  if (totalScore >= 90) classification = 'Xuất sắc';
+                  else if (totalScore >= 70) classification = 'Tốt';
+                  else if (totalScore >= 50) classification = 'Nhiệm vụ';
+
+                  if (tasks.length === 0) {
+                    html += `<tr><td>${oIdx + 1}</td><td><b>${off.rank} ${off.fullName}</b></td><td colspan="13" style="text-align:center;color:#666;">Chưa thiết lập nhiệm vụ KPI cho tháng này</td></tr>`;
+                  } else {
+                    tasks.forEach((t, idx) => {
+                      const rowAssigned = t.assignedQty * t.scorePerProduct;
+                      const rowCompleted = t.completedQty * t.scorePerProduct;
+                      const rowQuality = rowCompleted * t.qualityFactor;
+                      const rowSpeed = rowCompleted * t.speedFactor;
+
+                      const qStr = t.qualityFactor >= 1.1 ? 'Vượt mức (+10%)' : (t.qualityFactor < 1.0 ? `Thiếu sót (-${Math.round((1 - t.qualityFactor)*100)}%)` : 'Đảm bảo');
+                      const sStr = t.speedFactor < 1.0 ? `Chậm (-${Math.round((1 - t.speedFactor)*100)}%)` : 'Đảm bảo';
+
+                      html += `<tr>`;
+                      if (idx === 0) {
+                        html += `<td rowspan="${tasks.length}" style="vertical-align:middle;text-align:center;">${oIdx + 1}</td>`;
+                        html += `<td rowspan="${tasks.length}" style="vertical-align:middle;font-weight:bold;">s${off.rank} ${off.fullName}</td>`;
+                      }
+                      html += `<td>${t.name}</td><td>s${t.product}</td><td style="text-align:center;">${t.scorePerProduct}</td><td style="text-align:center;">${t.assignedQty}</td><td style="text-align:center;">${rowAssigned}</td><td style="text-align:center;">${t.completedQty}</td><td style="text-align:center;">${rowCompleted}</td><td>${qStr}</td><td>${sStr}</td>`;
+                      if (idx === 0) {
+                        html += `<td rowspan="${tasks.length}" style="vertical-align:middle;text-align:center;font-weight:bold;background:#faf5ff;">${kpiRounded}%</td>`;
+                        html += `<td rowspan="${tasks.length}" style="vertical-align:middle;text-align:center;font-weight:bold;background:#faf5ff;">${oE}</td>`;
+                        html += `<td rowspan="${tasks.length}" style="vertical-align:middle;text-align:center;font-weight:bold;background:#f0fdf4;color:#166534;">${totalScore.toFixed(2)}</td>`;
+                        html += `<td rowspan="${tasks.length}" style="vertical-align:middle;text-align:center;font-weight:bold;">${classification}</td>`;
+                      }
+                      html += `</tr>`;
+                    });
+                  }
+                });
+                
+                html += `</tbody></table></body></html>`;
+                const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `KPI_Tonghop_Thang_${selectedStatsMonth}_ToanDoi.xls`);
+                document.body.appendChild(link); link.click(); document.body.removeChild(link);
+              };
+
+              const handleExportMonthlyKpiWordSquadLocal = () => {
+                const todayStrInVietnamese = `Tây Ninh, ngày ${String(new Date().getDate()).padStart(2, '0')} tháng ${String(new Date().getMonth() + 1).padStart(2, '0')} năm ${new Date().getFullYear()}`;
+
+                let htmlContent = `
+                  <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+                  <head>
+                  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+                  <style>
+                    @page {
+                      size: A4 landscape;
+                      margin: 1.2cm 1.2cm 1.2cm 1.2cm;
+                    }
+                    body { font-family: "Times New Roman", Times, serif; font-size: 10pt; line-height: 1.3; }
+                    .header-table { width: 100%; border: none !important; margin-bottom: 20px; }
+                    .header-table td { border: none !important; padding: 2px; text-align: center; font-size: 10pt; vertical-align: top; }
+                    .title-section { text-align: center; margin-bottom: 20px; }
+                    .doc-title { font-size: 13pt; font-weight: bold; text-transform: uppercase; margin: 0; }
+                    .doc-subtitle { font-size: 11pt; font-style: italic; margin-top: 5px; margin-bottom: 0; }
+                    .main-table { width: 100%; border-collapse: collapse; font-size: 8.5pt; margin-top: 15px; }
+                    .main-table th { border: 1px solid #000000; padding: 6px 3px; font-weight: bold; text-align: center; background-color: #f2f2f2; }
+                    .main-table td { border: 1px solid #000000; padding: 5px 3px; vertical-align: middle; }
+                    .signature-table { width: 100%; border: none !important; margin-top: 35px; }
+                    .signature-table td { border: none !important; text-align: center; vertical-align: top; font-size: 10.5pt; width: 50%; }
+                  </style>
+                  </head>
+                  <body>
+                    <table class="header-table">
+                      <tr>
+                        <td style="width: 45%;">
+                          <b>CÔNG AN TỈNH TÂY NINH</b><br/>
+                          <b>PHÒNG CẢNH SÁT PCCC & CNCH</b><br/>
+                          <span>ĐỘI CC & CNCH KV TÂN AN</span><br/>
+                          <span>*</span>
+                        </td>
+                        <td style="width: 55%; font-weight: bold;">
+                          <b>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</b><br/>
+                          <span style="font-size: 10.5pt;">Độc lập - Tự do - Hạnh phúc</span><br/>
+                          <span>---------------</span>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <div class="title-section">
+                      <h2 class="doc-title">BẢNG ĐÁNH GIÁ CHỈ SỐ KPI TỔNG HỢP TOÀN ĐỘI</h2>
+                      <p class="doc-subtitle">Tháng ${selectedStatsMonth} năm ${selectedStatsYear}</p>
+                    </div>
+
+                    <table class="main-table" border="1">
+                      <thead>
+                        <tr style="background-color: #e6e6e6;">
+                          <th style="width: 30px;">STT</th>
+                          <th style="width: 130px;">Đồng chí</th>
+                          <th>Nội dung nhiệm vụ</th>
+                          <th style="width: 100px;">Sản phẩm công việc</th>
+                          <th style="width: 45px;">Điểm SP</th>
+                          <th style="width: 40px;">SL giao</th>
+                          <th style="width: 50px;">Tổng điểm giao</th>
+                          <th style="width: 40px;">SL đạt</th>
+                          <th style="width: 50px;">Điểm số lượng</th>
+                          <th style="width: 80px;">Chất lượng</th>
+                          <th style="width: 80px;">Tiến độ</th>
+                          <th style="width: 55px;">Điểm KPI</th>
+                          <th style="width: 45px;">Điểm E</th>
+                          <th style="width: 50px;">Tổng điểm</th>
+                          <th style="width: 70px;">Xếp loại</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y font-semibold">
-                        {inspections.map(insp => {
-                          const fac = facilities.find(f => f.id === insp.facilityId);
-                          return (
-                            <tr key={insp.id}>
-                              <td className="p-3 font-extrabold text-slate-850">{fac ? fac.name : 'Vùng ngoài'}</td>
-                              <td className="p-3 font-mono text-slate-500">{formatDateDMY(insp.date)}</td>
-                              <td className="p-3 text-slate-600 truncate max-w-[150px]">{insp.inspectors.join(', ')}</td>
-                              <td className="p-3 text-right font-sans">
-                                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                                  insp.result === 'Đạt yêu cầu' ? 'text-emerald-700 bg-emerald-50' : 'text-red-750 bg-red-50'
-                                }`}>{insp.result}</span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                      <tbody>
+                `;
+
+                activeOfficers.forEach((off, oIdx) => {
+                  const tasks = getKpiTasksForOfficer(off.id, selectedStatsYear, selectedStatsMonth);
+                  const oE = officerEValues[off.id] !== undefined ? officerEValues[off.id] : 30;
+                  
+                  let sumAssigned = 0, sumCompletedQty = 0, sumCompletedScore = 0, sumQual = 0, sumSpeed = 0;
+                  tasks.forEach(task => {
+                    sumAssigned += task.assignedQty * task.scorePerProduct;
+                    sumCompletedQty += task.completedQty;
+                    sumCompletedScore += task.completedQty * task.scorePerProduct;
+                    sumQual += task.completedQty * task.scorePerProduct * task.qualityFactor;
+                    sumSpeed += task.completedQty * task.scorePerProduct * task.speedFactor;
+                  });
+
+                  const A = sumAssigned > 0 ? (sumCompletedScore / sumAssigned) : 1;
+                  const B = sumAssigned > 0 ? (sumQual / sumAssigned) : 1;
+                  const C = sumAssigned > 0 ? (sumSpeed / sumAssigned) : 1;
+
+                  const kpiRounded = parseFloat((((A + B + C) / 3) * 100).toFixed(2));
+                  const totalScore = oE + kpiRounded * 0.7;
+
+                  let classification = 'Không hoàn thành';
+                  if (totalScore >= 90) classification = 'Xuất sắc';
+                  else if (totalScore >= 70) classification = 'Tốt';
+                  else if (totalScore >= 50) classification = 'Nhiệm vụ';
+
+                  if (tasks.length === 0) {
+                    htmlContent += `
+                      <tr>
+                        <td style="text-align: center;">${oIdx + 1}</td>
+                        <td><b>${off.rank} ${off.fullName}</b></td>
+                        <td colspan="13" style="text-align: center; color: #666; font-style: italic;">Chưa thiết lập nhiệm vụ KPI cho tháng này</td>
+                      </tr>
+                    `;
+                  } else {
+                    tasks.forEach((t, idx) => {
+                      const rowAssigned = t.assignedQty * t.scorePerProduct;
+                      const rowCompleted = t.completedQty * t.scorePerProduct;
+                      
+                      const qStr = t.qualityFactor >= 1.1 ? 'Vượt mức (+10%)' : (t.qualityFactor < 1.0 ? `Thiếu sót (-${Math.round((1 - t.qualityFactor)*100)}%)` : 'Đảm bảo');
+                      const sStr = t.speedFactor < 1.0 ? `Chậm (-${Math.round((1 - t.speedFactor)*100)}%)` : 'Đảm bảo';
+
+                      htmlContent += `<tr>`;
+                      if (idx === 0) {
+                        htmlContent += `<td rowspan="${tasks.length}" style="vertical-align: middle; text-align: center;">${oIdx + 1}</td>`;
+                        htmlContent += `<td rowspan="${tasks.length}" style="vertical-align: middle; font-weight: bold;">${off.rank} ${off.fullName}</td>`;
+                      }
+                      htmlContent += `
+                        <td>${t.name}</td>
+                        <td>${t.product}</td>
+                        <td style="text-align: center;">${t.scorePerProduct}</td>
+                        <td style="text-align: center;">${t.assignedQty}</td>
+                        <td style="text-align: center;">${rowAssigned}</td>
+                        <td style="text-align: center;">${t.completedQty}</td>
+                        <td style="text-align: center;">${rowCompleted}</td>
+                        <td>${qStr}</td>
+                        <td>${sStr}</td>
+                      `;
+                      if (idx === 0) {
+                        htmlContent += `
+                          <td rowspan="${tasks.length}" style="vertical-align: middle; text-align: center; font-weight: bold; background-color: #faf5ff;">${kpiRounded}%</td>
+                          <td rowspan="${tasks.length}" style="vertical-align: middle; text-align: center; font-weight: bold; background-color: #faf5ff;">${oE}</td>
+                          <td rowspan="${tasks.length}" style="vertical-align: middle; text-align: center; font-weight: bold; background-color: #f0fdf4; color: #166534;">${totalScore.toFixed(2)}</td>
+                          <td rowspan="${tasks.length}" style="vertical-align: middle; text-align: center; font-weight: bold;">${classification}</td>
+                        `;
+                      }
+                      htmlContent += `</tr>`;
+                    });
+                  }
+                });
+
+                htmlContent += `
+                    </tbody>
+                  </table>
+
+                  <table class="signature-table">
+                    <tr>
+                      <td>
+                        <b>BAN CHỈ HUY ĐỘI</b><br/>
+                        <span style="font-size: 8.5pt; font-style: italic;">(Ký, ghi rõ họ tên)</span>
+                        <div style="height: 75px;"></div>
+                      </td>
+                      <td>
+                        <span style="font-style: italic;">${todayStrInVietnamese}</span><br/>
+                        <b>NGƯỜI TỔNG HỢP</b><br/>
+                        <span style="font-size: 8.5pt; font-style: italic;">(Ký, ghi rõ họ tên)</span>
+                        <div style="height: 75px;"></div>
+                      </td>
+                    </tr>
+                  </table>
+                  </body>
+                  </html>
+                `;
+
+                const blob = new Blob([htmlContent], { type: 'application/msword;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `KPI_Tonghop_Thang_${selectedStatsMonth}_ToanDoi.doc`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              };
+
+              return (
+                <div className="space-y-6">
+                  {/* Tools Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-slate-50 p-4 rounded-xl border border-slate-200 gap-3 no-print">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 bg-white px-2.5 py-1.5 border border-slate-200 rounded-lg shadow-3xs">
+                        <Calendar className="w-4 h-4 text-slate-400" />
+                        <span className="text-[11px] font-bold text-slate-600">Tháng thống kê:</span>
+                        <select
+                          value={selectedStatsMonth}
+                          onChange={(e) => setSelectedStatsMonth(parseInt(e.target.value))}
+                          className="text-xs font-extrabold text-slate-700 bg-transparent border-none cursor-pointer p-0 focus:ring-0"
+                        >
+                          {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                            <option key={m} value={m}>Tháng {m}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleExportMonthlyKpiExcelLocal}
+                        className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-all shadow-3xs"
+                      >
+                        <FileDown className="w-3.5 h-3.5" /> Xuất Excel Tổng Hợp (XLS)
+                      </button>
+                      <button
+                        id="export-squad-monthly-kpi-word-btn"
+                        onClick={handleExportMonthlyKpiWordSquadLocal}
+                        className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-all shadow-3xs"
+                        title="Xuất bảng tổng hợp toàn đội ra định dạng Microsoft Word (.doc)"
+                      >
+                        <FileText className="w-3.5 h-3.5" /> Xuất Word Tổng Hợp (DOC)
+                      </button>
+                      <button
+                        onClick={() => window.print()}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-all shadow-3xs"
+                      >
+                        <Printer className="w-3.5 h-3.5" /> In Tổng Hợp
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-300 p-5 rounded-xl bg-white space-y-4">
+                    <h2 className="text-center text-sm font-extrabold text-slate-900 uppercase tracking-tight my-2">
+                      BẢNG ĐÁNH GIÁ CHỈ SỐ KPI TỔNG HỢP TOÀN ĐỘI THÁNG {selectedStatsMonth}/{selectedStatsYear}
+                    </h2>
+
+                    <div className="overflow-x-auto rounded-lg border border-slate-300 shadow-3xs">
+                      <table className="w-full text-left border-collapse font-sans text-[11px] min-w-[1500px]">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-800 font-extrabold border-b border-slate-400 text-center uppercase text-[10px]">
+                            <th className="p-2 border border-slate-300 w-12" rowSpan={2}>TT</th>
+                            <th className="p-2 border border-slate-300 w-48" rowSpan={2}>Đồng chí</th>
+                            <th className="p-2 border border-slate-300 w-64" rowSpan={2}>Nội dung nhiệm vụ</th>
+                            <th className="p-2 border border-slate-300 w-32" rowSpan={2}>Sản phẩm công việc</th>
+                            <th className="p-2 border border-slate-300 bg-slate-250 w-64" colSpan={3}>Giao nhiệm vụ</th>
+                            <th className="p-2 border border-slate-300 bg-emerald-50/40" colSpan={8}>Đánh giá</th>
+                            <th className="p-2 border border-slate-300 bg-purple-50/30 w-96" colSpan={4}>Xếp loại & KPI</th>
+                            <th className="p-2 border border-slate-300 w-28" rowSpan={2}>Ghi chú</th>
+                            <th className="p-2 border border-slate-300 w-16 no-print" rowSpan={2}>Xóa</th>
+                          </tr>
+                          <tr className="bg-slate-55 text-slate-700 font-bold border-b border-slate-300 text-center text-[9px]">
+                            <th className="p-1 border border-slate-300">Điểm SP</th>
+                            <th className="p-1 border border-slate-300 w-14">SL giao</th>
+                            <th className="p-1 border border-slate-300 w-20">Tổng điểm giao</th>
+                            <th className="p-1 border border-slate-300 w-14">SL đạt</th>
+                            <th className="p-1 border border-slate-300 w-20">Điểm số lượng</th>
+                            <th className="p-1 border border-slate-300 w-24">Vượt mức B</th>
+                            <th className="p-1 border border-slate-300 w-24">Thiếu sót B</th>
+                            <th className="p-1 border border-slate-300 w-20">Điểm Chất lượng</th>
+                            <th className="p-1 border border-slate-300 w-24">Đảm bảo C</th>
+                            <th className="p-1 border border-slate-300 w-24">Chậm trễ C</th>
+                            <th className="p-1 border border-slate-300 w-20">Điểm Tiến độ</th>
+                            <th className="p-1 border border-slate-300 w-24 bg-purple-50/20">KPI (%)</th>
+                            <th className="p-1 border border-slate-300 w-24 bg-purple-50/20">Điểm E</th>
+                            <th className="p-1 border border-slate-300 w-24 bg-purple-50/20">Tổng điểm</th>
+                            <th className="p-1 border border-slate-300 w-28 bg-purple-50/20">Xếp loại</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activeOfficers.map((officer, oIdx) => {
+                            const tasks = getKpiTasksForOfficer(officer.id, selectedStatsYear, selectedStatsMonth);
+                            const oE = officerEValues[officer.id] !== undefined ? officerEValues[officer.id] : 30;
+
+                            let sumAssigned = 0, sumCompletedQty = 0, sumCompletedScore = 0, sumQual = 0, sumSpeed = 0;
+                            tasks.forEach(task => {
+                              sumAssigned += task.assignedQty * task.scorePerProduct;
+                              sumCompletedQty += task.completedQty;
+                              sumCompletedScore += task.completedQty * task.scorePerProduct;
+                              sumQual += task.completedQty * task.scorePerProduct * task.qualityFactor;
+                              sumSpeed += task.completedQty * task.scorePerProduct * task.speedFactor;
+                            });
+
+                            const A = sumAssigned > 0 ? (sumCompletedScore / sumAssigned) : 1;
+                            const B = sumAssigned > 0 ? (sumQual / sumAssigned) : 1;
+                            const C = sumAssigned > 0 ? (sumSpeed / sumAssigned) : 1;
+
+                            const kpiRounded = parseFloat((((A + B + C) / 3) * 100).toFixed(2));
+                            const totalScore = oE + kpiRounded * 0.7;
+
+                            let classification = 'Không hoàn thành';
+                            let badgeClass = 'bg-rose-50 text-rose-700 border-rose-200';
+                            if (totalScore >= 90) {
+                              classification = 'Hoàn thành Xuất sắc';
+                              badgeClass = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+                            } else if (totalScore >= 70) {
+                              classification = 'Hoàn thành Tốt';
+                              badgeClass = 'bg-indigo-50 text-indigo-800 border-indigo-200';
+                            } else if (totalScore >= 50) {
+                              classification = 'Hoàn thành Nhiệm vụ';
+                              badgeClass = 'bg-amber-50 text-amber-800 border-amber-200';
+                            }
+
+                            const groupRowSpan = tasks.length > 0 ? tasks.length + 1 : 1;
+
+                            if (tasks.length === 0) {
+                              return (
+                                <tr key={officer.id} className="border-b border-slate-300 hover:bg-slate-50/40">
+                                  <td className="p-2 border border-slate-300 text-center font-mono font-bold text-slate-500 align-middle">
+                                    {oIdx + 1}
+                                  </td>
+                                  <td className="p-2 border border-slate-300 bg-slate-50/50 font-semibold text-slate-900 align-middle">
+                                    <div className="space-y-1.5">
+                                      <div className="font-bold text-slate-900 leading-tight">{officer.rank} {officer.fullName}</div>
+                                      <div className="text-[10px] text-slate-500 leading-tight font-medium">{officer.position}</div>
+                                      <div className="flex flex-col gap-1 pt-1 no-print">
+                                        <button
+                                          onClick={() => handleAddStatsTask(officer.id, selectedStatsYear, selectedStatsMonth)}
+                                          className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-[9px] font-bold flex items-center justify-center gap-0.5 transition-colors cursor-pointer shadow-3xs"
+                                        >
+                                          <Plus className="w-2.5 h-2.5" /> Thêm nhiệm vụ
+                                        </button>
+                                        <button
+                                          onClick={() => handleResetStatsTasks(officer.id, selectedStatsYear, selectedStatsMonth)}
+                                          className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[9px] font-bold flex items-center justify-center gap-0.5 transition-colors cursor-pointer"
+                                        >
+                                          <RefreshCw className="w-2.5 h-2.5" /> Khởi tạo mẫu
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="p-3 border border-slate-300 text-center text-slate-400 italic font-medium align-middle bg-slate-50/20" colSpan={13}>
+                                    Chưa thiết lập nhiệm vụ cho cán bộ này. Hãy nhấn "Thêm nhiệm vụ" hoặc "Khởi tạo mẫu" để bắt đầu.
+                                  </td>
+                                  <td className="p-2 border border-slate-300 text-center font-mono font-bold text-slate-400 bg-rose-55/10 align-middle">
+                                    0.00%
+                                  </td>
+                                  <td className="p-2 border border-slate-300 text-center align-middle">
+                                    <div className="flex flex-col items-center gap-1.5 justify-center">
+                                      <input
+                                        type="number" min={0} max={30} value={oE}
+                                        onChange={(e) => setOfficerEValues({...officerEValues, [officer.id]: parseInt(e.target.value) || 0})}
+                                        className="w-10 text-center font-mono font-bold border border-slate-300 rounded p-0.5 text-[10px] bg-white focus:ring-1 focus:ring-red-500"
+                                      />
+                                      <input
+                                        type="range" min={0} max={30} value={oE}
+                                        onChange={(e) => setOfficerEValues({...officerEValues, [officer.id]: parseInt(e.target.value)})}
+                                        className="w-12 accent-red-650 cursor-pointer no-print"
+                                      />
+                                    </div>
+                                  </td>
+                                  <td className="p-2 border border-slate-300 text-center font-mono font-bold text-emerald-800 bg-emerald-50/10 align-middle">
+                                    {totalScore.toFixed(2)}
+                                  </td>
+                                  <td className="p-2 border border-slate-300 text-center align-middle">
+                                    <span className={`inline-block px-1.5 py-1 text-[9px] font-black rounded-md border text-center whitespace-normal leading-tight w-24 ${badgeClass}`}>
+                                      {classification}
+                                    </span>
+                                  </td>
+                                  <td className="p-2 border border-slate-300"></td>
+                                  <td className="p-2 border border-slate-300 text-center no-print">-</td>
+                                </tr>
+                              );
+                            }
+
+                            return (
+                              <React.Fragment key={officer.id}>
+                                {tasks.map((task, idx) => {
+                                  const rowAssigned = task.assignedQty * task.scorePerProduct;
+                                  const rowCompleted = task.completedQty * task.scorePerProduct;
+                                  const rowQuality = rowCompleted * task.qualityFactor;
+                                  const rowSpeed = rowCompleted * task.speedFactor;
+
+                                  return (
+                                    <tr key={task.id} className="border-b border-slate-200 hover:bg-slate-50/50">
+                                      {idx === 0 && (
+                                        <>
+                                          <td rowSpan={groupRowSpan} className="p-2 border border-slate-300 text-center font-mono font-bold text-slate-500 align-middle">
+                                            {oIdx + 1}
+                                          </td>
+                                          <td rowSpan={groupRowSpan} className="p-2 border border-slate-300 font-semibold text-slate-900 align-middle bg-slate-50/40">
+                                            <div className="space-y-1.5">
+                                              <div className="font-bold text-slate-900 leading-tight">{officer.rank} {officer.fullName}</div>
+                                              <div className="text-[10px] text-slate-500 leading-tight font-medium">{officer.position}</div>
+                                              <div className="flex flex-col gap-1 pt-1 no-print">
+                                                <button
+                                                  onClick={() => handleAddStatsTask(officer.id, selectedStatsYear, selectedStatsMonth)}
+                                                  className="px-2 py-1 bg-red-650 hover:bg-red-700 text-white rounded text-[9px] font-bold flex items-center justify-center gap-0.5 transition-colors cursor-pointer shadow-3xs"
+                                                >
+                                                  <Plus className="w-2.5 h-2.5" /> Thêm nhiệm vụ
+                                                </button>
+                                                <button
+                                                  onClick={() => handleResetStatsTasks(officer.id, selectedStatsYear, selectedStatsMonth)}
+                                                  className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[9px] font-bold flex items-center justify-center gap-0.5 transition-colors cursor-pointer"
+                                                >
+                                                  <RefreshCw className="w-2.5 h-2.5" /> Khởi tạo mẫu
+                                                </button>
+                                              </div>
+                                            </div>
+                                          </td>
+                                        </>
+                                      )}
+
+                                      <td className="p-1 border border-slate-300">
+                                        <input
+                                          type="text"
+                                          value={task.name}
+                                          onChange={(e) => handleUpdateTaskField(officer.id, selectedStatsYear, selectedStatsMonth, task.id, 'name', e.target.value)}
+                                          className="w-full bg-transparent border-none p-0 focus:ring-0 text-xs font-semibold text-slate-850"
+                                        />
+                                      </td>
+                                      <td className="p-1 border border-slate-300">
+                                        <input
+                                          type="text"
+                                          value={task.product}
+                                          onChange={(e) => handleUpdateTaskField(officer.id, selectedStatsYear, selectedStatsMonth, task.id, 'product', e.target.value)}
+                                          className="w-full bg-transparent border-none p-0 focus:ring-0 text-center font-bold text-slate-650 text-xs"
+                                        />
+                                      </td>
+                                      <td className="p-1 border border-slate-300 bg-slate-50/20">
+                                        <input
+                                          type="number"
+                                          value={task.scorePerProduct}
+                                          onChange={(e) => handleUpdateTaskField(officer.id, selectedStatsYear, selectedStatsMonth, task.id, 'scorePerProduct', parseInt(e.target.value) || 0)}
+                                          className="w-full bg-transparent border-none p-0 focus:ring-0 text-center font-mono font-extrabold text-slate-855"
+                                        />
+                                      </td>
+                                      <td className="p-1 border border-slate-300 bg-slate-50/20">
+                                        <input
+                                          type="number"
+                                          value={task.assignedQty}
+                                          onChange={(e) => handleUpdateTaskField(officer.id, selectedStatsYear, selectedStatsMonth, task.id, 'assignedQty', parseInt(e.target.value) || 1)}
+                                          className="w-full bg-transparent border-none p-0 focus:ring-0 text-center font-mono font-extrabold text-blue-800"
+                                        />
+                                      </td>
+                                      <td className="p-2 border border-slate-300 text-center font-mono font-bold bg-slate-100/10">{rowAssigned}</td>
+                                      <td className="p-1 border border-slate-300 bg-emerald-50/5">
+                                        <input
+                                          type="number"
+                                          value={task.completedQty}
+                                          onChange={(e) => handleUpdateTaskField(officer.id, selectedStatsYear, selectedStatsMonth, task.id, 'completedQty', parseInt(e.target.value) || 0)}
+                                          className="w-full bg-transparent border-none p-0 focus:ring-0 text-center font-mono font-extrabold text-emerald-800"
+                                        />
+                                      </td>
+                                      <td className="p-2 border border-slate-300 text-center font-mono font-bold bg-emerald-50/10 text-emerald-900">{rowCompleted}</td>
+                                      <td className="p-1 border border-slate-300 text-center bg-emerald-50/5">
+                                        <select
+                                          value={task.qualityFactor >= 1.0 ? task.qualityFactor : 1.0}
+                                          onChange={(e) => handleUpdateTaskField(officer.id, selectedStatsYear, selectedStatsMonth, task.id, 'qualityFactor', parseFloat(e.target.value))}
+                                          className="text-[10px] p-0.5 border border-slate-200 rounded-sm font-semibold bg-white cursor-pointer focus:outline-hidden"
+                                        >
+                                          <option value={1.1}>Vượt mức (+10%)</option>
+                                          <option value={1.0}>Đảm bảo</option>
+                                        </select>
+                                      </td>
+                                      <td className="p-1 border border-slate-300 text-center bg-emerald-50/5">
+                                        <select
+                                          value={task.qualityFactor < 1.0 ? task.qualityFactor : 1.0}
+                                          onChange={(e) => handleUpdateTaskField(officer.id, selectedStatsYear, selectedStatsMonth, task.id, 'qualityFactor', parseFloat(e.target.value))}
+                                          className="text-[10px] p-0.5 border border-slate-200 rounded-sm font-semibold bg-white cursor-pointer focus:outline-hidden"
+                                        >
+                                          <option value={1.0}>Không lỗi</option>
+                                          <option value={0.75}>Lỗi 1 lần (-25%)</option>
+                                          <option value={0.5}>Lỗi 2 lần (-50%)</option>
+                                          <option value={0.0}>Không đạt</option>
+                                        </select>
+                                      </td>
+                                      <td className="p-2 border border-slate-300 text-center font-mono font-bold text-teal-800 bg-teal-50/5">{rowQuality.toFixed(1)}</td>
+                                      <td className="p-1 border border-slate-300 text-center bg-emerald-50/5">
+                                        <select
+                                          value={task.speedFactor >= 1.0 ? task.speedFactor : 1.0}
+                                          onChange={(e) => handleUpdateTaskField(officer.id, selectedStatsYear, selectedStatsMonth, task.id, 'speedFactor', parseFloat(e.target.value))}
+                                          className="text-[10px] p-0.5 border border-slate-200 rounded-sm font-semibold bg-white cursor-pointer focus:outline-hidden"
+                                        >
+                                          <option value={1.0}>Kịp thời</option>
+                                        </select>
+                                      </td>
+                                      <td className="p-1 border border-slate-300 text-center bg-emerald-50/5">
+                                        <select
+                                          value={task.speedFactor < 1.0 ? task.speedFactor : 1.0}
+                                          onChange={(e) => handleUpdateTaskField(officer.id, selectedStatsYear, selectedStatsMonth, task.id, 'speedFactor', parseFloat(e.target.value))}
+                                          className="text-[10px] p-0.5 border border-slate-200 rounded-sm font-semibold bg-white cursor-pointer focus:outline-hidden"
+                                        >
+                                          <option value={1.0}>Không trễ</option>
+                                          <option value={0.75}>Chậm 1 lần (-25%)</option>
+                                          <option value={0.5}>Chậm 2 lần (-50%)</option>
+                                          <option value={0.0}>Trễ hạn</option>
+                                        </select>
+                                      </td>
+                                      <td className="p-2 border border-slate-300 text-center font-mono font-bold text-indigo-800 bg-indigo-50/5">{rowSpeed.toFixed(1)}</td>
+
+                                      {idx === 0 && (
+                                        <>
+                                          <td rowSpan={groupRowSpan} className="p-2 border border-slate-300 text-center font-mono font-bold text-purple-800 bg-purple-50/20 align-middle">
+                                            <div className="space-y-0.5">
+                                              <div className="text-sm font-extrabold text-purple-950">{kpiRounded}%</div>
+                                              <div className="text-[9px] text-slate-500 font-medium space-y-0.5">
+                                                <div>A = {A === 1 ? '1.0' : A.toFixed(3)}</div>
+                                                <div>B = {B.toFixed(3)}</div>
+                                                <div>C = {C === 1 ? '1.0' : C.toFixed(3)}</div>
+                                              </div>
+                                            </div>
+                                          </td>
+                                          <td rowSpan={groupRowSpan} className="p-2 border border-slate-300 text-center align-middle bg-slate-50/10">
+                                            <div className="flex flex-col items-center gap-1.5 justify-center">
+                                              <input
+                                                type="number" min={0} max={30} value={oE}
+                                                onChange={(e) => setOfficerEValues({...officerEValues, [officer.id]: parseInt(e.target.value) || 0})}
+                                                className="w-10 text-center font-mono font-bold border border-slate-300 rounded p-0.5 text-[10px] bg-white focus:ring-1 focus:ring-red-500"
+                                              />
+                                              <input
+                                                type="range" min={0} max={30} value={oE}
+                                                onChange={(e) => setOfficerEValues({...officerEValues, [officer.id]: parseInt(e.target.value)})}
+                                                className="w-12 accent-red-650 cursor-pointer no-print"
+                                              />
+                                            </div>
+                                          </td>
+                                          <td rowSpan={groupRowSpan} className="p-2 border border-slate-300 text-center font-mono font-bold text-emerald-800 bg-emerald-50/25 align-middle">
+                                            <div className="text-xs font-black text-emerald-950">{totalScore.toFixed(2)}</div>
+                                            <div className="text-[8px] text-slate-400 font-medium">E + KPIx0.7</div>
+                                          </td>
+                                          <td rowSpan={groupRowSpan} className="p-2 border border-slate-300 text-center align-middle">
+                                            <span className={`inline-block px-1.5 py-1 text-[9px] font-black rounded-md border text-center whitespace-normal leading-tight w-24 ${badgeClass}`}>
+                                              {classification}
+                                            </span>
+                                          </td>
+                                        </>
+                                      )}
+
+                                      <td className="p-1 border border-slate-300">
+                                        <input
+                                          type="text"
+                                          value={task.notes || ''}
+                                          onChange={(e) => handleUpdateTaskField(officer.id, selectedStatsYear, selectedStatsMonth, task.id, 'notes', e.target.value)}
+                                          className="w-full bg-transparent border-none p-0 focus:ring-0 text-slate-700 text-center text-xs"
+                                          placeholder="Ghi chú..."
+                                        />
+                                      </td>
+                                      <td className="p-2 border border-slate-300 text-center no-print">
+                                        <button
+                                          onClick={() => handleDeleteStatsTask(officer.id, selectedStatsYear, selectedStatsMonth, task.id)}
+                                          className="p-1 hover:bg-red-50 text-red-500 rounded cursor-pointer"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+
+                                <tr className="bg-slate-100/55 border-t border-b border-slate-300 font-extrabold text-slate-900 text-center text-[10px]">
+                                  <td className="p-2 font-bold text-right text-slate-700 bg-slate-50/30" colSpan={2}>CỘNG:</td>
+                                  <td className="p-2 border border-slate-300 bg-slate-100/10">-</td>
+                                  <td className="p-2 border border-slate-300 bg-slate-100/10">-</td>
+                                  <td className="p-2 border border-slate-300 font-mono text-slate-900 bg-slate-100">{sumAssigned}</td>
+                                  <td className="p-2 border border-slate-300 font-mono text-emerald-800 bg-emerald-50/30">{sumCompletedQty}</td>
+                                  <td className="p-2 border border-slate-300 font-mono text-emerald-950 bg-emerald-100">{sumCompletedScore}</td>
+                                  <td className="p-2 border border-slate-300 bg-slate-100/10" colSpan={2}>-</td>
+                                  <td className="p-2 border border-slate-300 font-mono text-teal-950 bg-teal-100">{sumQual.toFixed(1)}</td>
+                                  <td className="p-2 border border-slate-300 bg-slate-100/10" colSpan={2}>-</td>
+                                  <td className="p-2 border border-slate-300 font-mono text-indigo-950 bg-indigo-100">{sumSpeed.toFixed(1)}</td>
+                                  <td className="p-2 border border-slate-300 bg-slate-100/10">-</td>
+                                  <td className="p-2 border border-slate-300 no-print bg-slate-100/10"></td>
+                                </tr>
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1.5 no-print">
+                      <span className="text-[10px] font-bold uppercase text-slate-500 block tracking-wider">🏆 Quy chuẩn phân loại thi đua theo Hướng dẫn số 20-HD/ĐUCA</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-[9px] text-slate-600 font-bold uppercase">
+                        <div className="text-center p-1.5 bg-emerald-50 text-emerald-800 rounded border border-emerald-100">Xuất sắc: &gt;= 90 điểm</div>
+                        <div className="text-center p-1.5 bg-indigo-50 text-indigo-800 rounded border border-indigo-100">Tốt / Khá: 70 - 89.99 điểm</div>
+                        <div className="text-center p-1.5 bg-amber-50 text-amber-800 rounded border border-amber-100">Đạt yêu cầu: 50 - 69.99 điểm</div>
+                        <div className="text-center p-1.5 bg-rose-50 text-rose-850 rounded border border-rose-100">Không hoàn thành: &lt; 50 điểm</div>
+                      </div>
+                    </div>
+
                   </div>
                 </div>
-              )}
-
-              {reportType === 'rescue' && (
-                <div className="space-y-6" id="report-rescue-subpanel">
-                  <div className="border-b pb-2">
-                    <h4 className="font-extrabold text-sm text-slate-800 uppercase tracking-wide">
-                      Kiểm kê Khí đài trực chiến & Phủ phương án tác chiến khẩn cấp
-                    </h4>
-                    <p className="text-slate-500 text-[11px] mt-0.5">Thống kê phương tiện cơ giới bám ca trực và mức độ phủ diễn tập phương án dập lửa.</p>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 font-sans">
-                    <div className="space-y-3 p-4 border rounded-xl bg-slate-50/50">
-                      <h5 className="font-extrabold text-slate-800 text-xs uppercase text-red-650">Kế hoạch phê chuẩn & thực binh diễn tập</h5>
-                      <div className="space-y-2 text-xs">
-                        <div className="flex justify-between">
-                          <span>Tổng phương án đã soạn thảo:</span>
-                          <strong className="font-mono text-slate-855 bg-white border px-2 py-0.2 rounded shadow-2xs">{plans.length} phương án</strong>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Đã phối hợp thực binh diễn tập:</span>
-                          <strong className="font-mono text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.2 rounded shadow-2xs">
-                            {plans.filter(p => !!p.rehearsalDate).length} phương án
-                          </strong>
-                        </div>
-                        <div className="flex justify-between text-slate-455">
-                          <span>Thời lượng huấn luyện trung binh:</span>
-                          <strong className="font-mono text-slate-800">22 giờ / phương án</strong>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 p-4 border rounded-xl bg-slate-50/50">
-                      <h5 className="font-extrabold text-slate-800 text-xs uppercase text-blue-600">Trạng thái trang thiết bị khí tài cứu hỏa</h5>
-                      <div className="space-y-2 text-xs">
-                        <div className="flex justify-between">
-                          <span>Thiết bị đạt yêu cầu vận hành (Tốt):</span>
-                          <strong className="font-mono text-emerald-600">{equipment.filter(e => e.status === 'Tốt').length} thiết bị</strong>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Đang đưa vào trạm bảo dưỡng:</span>
-                          <strong className="font-mono text-amber-700">{equipment.filter(e => e.status === 'Đang bảo dưỡng').length} thiết bị</strong>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Hao mòn chờ thanh lý/Cần sửa chữa:</span>
-                          <strong className="font-mono text-red-600">{equipment.filter(e => e.status === 'Hỏng hóc' || e.status === 'Cần sửa chữa').length} thiết bị</strong>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {reportType === 'documents' && (
-                <div className="space-y-6" id="report-documents-subpanel">
-                  <div className="border-b pb-2">
-                    <h4 className="font-extrabold text-[#1a202c] uppercase tracking-wide">
-                      Lưu lượng văn thư liên ngành Đến/Đi năm 2026
-                    </h4>
-                    <p className="text-slate-500 text-[11px] mt-0.5">Giám sát mức độ thâm nhập thông tin chỉ đạo và hiệu suất làm văn bản báo cáo.</p>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-slate-700 font-semibold font-sans">
-                    <div className="space-y-3 p-4 border rounded-xl">
-                      <span className="font-black text-slate-400 block text-[10px] uppercase tracking-wider">Công văn Đến nhận</span>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span>Tổng công văn đến:</span>
-                          <span className="font-mono font-bold text-slate-800">{incomingDocs.length} nhận</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Đang thụ lý chưa ký kết:</span>
-                          <span className="font-mono text-blue-600 font-bold bg-blue-50 px-1.5 rounded">{incomingDocs.filter(d => d.status === 'Đang xử lý').length} văn bản</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Đã báo cáo hoàn tất:</span>
-                          <span className="font-mono text-emerald-600 font-bold bg-emerald-50 px-1.5 rounded">{incomingDocs.filter(d => d.status === 'Đã hoàn thành').length} văn bản</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 p-4 border rounded-xl">
-                      <span className="font-black text-slate-400 block text-[10px] uppercase tracking-wider">Công văn Đi ban hành</span>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span>Tổng quyết định, báo cáo ban hành:</span>
-                          <span className="font-mono font-bold text-slate-800">{outgoingDocs.length} văn bản</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Soạn thảo bởi đại diện cán bộ:</span>
-                          <span className="font-mono font-bold">{officers.filter(o => o.tasksCount > 2).length} cán bộ</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Trung vị xét duyệt của Trưởng ban:</span>
-                          <span className="font-mono font-bold bg-slate-100 px-1.5 rounded">1.5 ngày / văn bản</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+              );
+            })()}
           </div>
-        </div>
-      </div>
+
     </div>
-  );
+  )}
+</div>
+);
 }

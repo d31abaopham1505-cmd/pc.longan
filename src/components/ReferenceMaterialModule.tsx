@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { PCCCStoreType } from '../lib/store';
 import { ReferenceMaterial } from '../types';
-import { jsPDF } from 'jspdf';
+import { createVietnameseDoc, downloadPdfBlob, stripAccents, sanitizeFileName } from '../lib/pdfUtils';
 import { 
   BookOpen, Search, Plus, Trash2, Edit2, FileText, 
   ExternalLink, Calendar, Check, Library, X, Paperclip,
@@ -595,42 +595,29 @@ export default function ReferenceMaterialModule({ store }: ReferenceProps) {
                         </button>
                         <button 
                           type="button"
-                          onClick={() => {
-                            const cleanStr = (str: string) => {
-                              if (!str) return '';
-                              let co = str.toString();
-                              co = co.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
-                              co = co.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, "e");
-                              co = co.replace(/ì|í|ị|ỉ|ĩ/g, "i");
-                              co = co.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, "o");
-                              co = co.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, "u");
-                              co = co.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, "y");
-                              co = co.replace(/đ/g, "d");
-                              co = co.replace(/À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ/g, "A");
-                              co = co.replace(/È|É|Ẹ|Ẻ|Ẽ|Ê|Ề|Ế|Ệ|Ể|Ễ/g, "E");
-                              co = co.replace(/Ì|Í|Ị|Ỉ|Ĩ/g, "I");
-                              co = co.replace(/Ò|Ó|Ọ|Bả|Õ|Ô|Ồ|Ố|Ộ|Ổ|Ỗ|Ơ|Ờ|Ớ|Ợ|Ở|Ỡ/g, "O");
-                              co = co.replace(/Ù|Ú|Ụ|Ủ|Ũ|Ư|Ừ|Ứ|Ự|Ử|Ữ/g, "U");
-                              co = co.replace(/Ỳ|Ý|Y|Ỷ|Ỹ/g, "Y");
-                              co = co.replace(/Đ/g, "D");
-                              return co.replace(/[^\x20-\x7E]/g, "");
-                            };
-
+                          onClick={async () => {
                             try {
-                              const doc = new jsPDF();
+                              const { doc, isUnicode } = await createVietnameseDoc();
+                              const fontFamily = isUnicode ? "Roboto" : "Helvetica";
+
+                              const cleanStr = (str: string) => {
+                                if (!str) return '';
+                                return isUnicode ? str.toString() : stripAccents(str.toString());
+                              };
+
                               // Outer border
                               doc.setDrawColor(210, 210, 210);
                               doc.rect(10, 10, 190, 277);
 
                               // Header
-                              doc.setFont("Helvetica", "bold");
+                              doc.setFont(fontFamily, "bold");
                               doc.setFontSize(8);
-                              doc.text("BO CONG AN - VIET NAM", 15, 20);
-                              doc.text("CUC CANH SAT PCCC & CNCH", 15, 24);
+                              doc.text(isUnicode ? "BỘ CÔNG AN - VIỆT NAM" : "BO CONG AN - VIET NAM", 15, 20);
+                              doc.text(isUnicode ? "CỤC CẢNH SÁT PCCC & CNCH" : "CUC CANH SAT PCCC & CNCH", 15, 24);
 
-                              doc.text("CONG HOA XA HOI CHU NGHIA VIET NAM", 110, 20);
+                              doc.text(isUnicode ? "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM" : "CONG HOA XA HOI CHU NGHIA VIET NAM", 110, 20);
                               doc.setFontSize(7.5);
-                              doc.text("Doc lap - Tu do - Hanh phuc", 128, 24);
+                              doc.text(isUnicode ? "Độc lập - Tự do - Hạnh phúc" : "Doc lap - Tu do - Hanh phuc", 128, 24);
                               doc.line(128, 26, 168, 26);
 
                               doc.setLineWidth(0.4);
@@ -638,37 +625,37 @@ export default function ReferenceMaterialModule({ store }: ReferenceProps) {
 
                               // Title
                               doc.setFontSize(11);
-                              doc.setFont("Helvetica", "bold");
-                              doc.text("VAN BAN QUY CHUAN KY THUAT - PHAP LUAT", 105, 45, { align: "center" });
+                              doc.setFont(fontFamily, "bold");
+                              doc.text(isUnicode ? "VĂN BẢN QUY CHUẨN KỸ THUẬT - PHÁP LUẬT" : "VAN BAN QUY CHUAN KY THUAT - PHAP LUAT", 105, 45, { align: "center" });
 
                               // Subtitle
                               doc.setFontSize(9);
-                              doc.setFont("Helvetica", "bolditalic");
+                              doc.setFont(fontFamily, "bolditalic");
                               doc.text(cleanStr(viewingMaterial.title).toUpperCase(), 105, 52, { align: "center" });
 
                               // Specs table
-                              doc.setFont("Helvetica", "bold");
+                              doc.setFont(fontFamily, "bold");
                               doc.setFontSize(8.5);
-                              doc.text("THONG TIN TAI LIEU:", 18, 68);
+                              doc.text(isUnicode ? "THÔNG TIN TÀI LIỆU:" : "THONG TIN TAI LIEU:", 18, 68);
 
-                              doc.setFont("Helvetica", "normal");
+                              doc.setFont(fontFamily, "normal");
                               doc.setFontSize(8);
-                              doc.text(`- Ma so / Ten file: ${cleanStr(viewingMaterial.fileUrl)}`, 20, 74);
-                              doc.text(`- Nhom danh muc: ${cleanStr(viewingMaterial.category)}`, 20, 79);
-                              doc.text(`- Co quan ban hanh: ${cleanStr(viewingMaterial.publisher || 'Cuc Canh sat PCCC & CNCH')}`, 20, 84);
-                              doc.text(`- Nam ban hanh: ${cleanStr(viewingMaterial.publishYear || '2026')}`, 20, 89);
+                              doc.text(isUnicode ? `- Mã số / Tên file: ${cleanStr(viewingMaterial.fileUrl)}` : `- Ma so / Ten file: ${cleanStr(viewingMaterial.fileUrl)}`, 20, 74);
+                              doc.text(isUnicode ? `- Nhóm danh mục: ${cleanStr(viewingMaterial.category)}` : `- Nhom danh muc: ${cleanStr(viewingMaterial.category)}`, 20, 79);
+                              doc.text(isUnicode ? `- Cơ quan ban hành: ${cleanStr(viewingMaterial.publisher || 'Cục Cảnh sát PCCC & CNCH')}` : `- Co quan ban hanh: ${cleanStr(viewingMaterial.publisher || 'Cuc Canh sat PCCC & CNCH')}`, 20, 84);
+                              doc.text(isUnicode ? `- Năm ban hành: ${cleanStr(viewingMaterial.publishYear || '2026')}` : `- Nam ban hanh: ${cleanStr(viewingMaterial.publishYear || '2026')}`, 20, 89);
 
                               // Content box
                               doc.setDrawColor(200, 0, 0);
                               doc.setFillColor(253, 250, 250);
                               doc.rect(18, 98, 174, 50, "FD");
 
-                              doc.setFont("Helvetica", "bold");
+                              doc.setFont(fontFamily, "bold");
                               doc.setTextColor(200, 0, 0);
-                              doc.text("GHI CHU & TO TRINH TRICH YEU:", 22, 104);
+                              doc.text(isUnicode ? "GHI CHÚ & TỜ TRÌNH TRÍCH YẾU:" : "GHI CHU & TO TRINH TRICH YEU:", 22, 104);
 
                               doc.setTextColor(50, 50, 50);
-                              doc.setFont("Helvetica", "normal");
+                              doc.setFont(fontFamily, "normal");
                               
                               const notesVal = viewingMaterial.notes || "Tai lieu nay quy dinh cac quy chuan tieu chuan quoc gia ve phong chay chua chay doi voi cac co so san xuat, kinh doanh va cong trinh cong cong.";
                               const splitNotes = doc.splitTextToSize(cleanStr(notesVal), 164);
@@ -679,9 +666,9 @@ export default function ReferenceMaterialModule({ store }: ReferenceProps) {
 
                               // Closing stamp
                               const sigY = 170;
-                              doc.setFont("Helvetica", "bold");
-                              doc.text("XAC NHAN HE THONG", 130, sigY);
-                              doc.text("VONG PHONG PHAP CHE", 128, sigY + 5);
+                              doc.setFont(fontFamily, "bold");
+                              doc.text(isUnicode ? "XÁC NHẬN HỆ THỐNG" : "XAC NHAN HE THONG", 130, sigY);
+                              doc.text(isUnicode ? "VĂN PHÒNG PHÁP CHẾ" : "VONG PHONG PHAP CHE", 128, sigY + 5);
 
                               // Draw stamp circle
                               doc.setDrawColor(200, 0, 0);
@@ -692,24 +679,15 @@ export default function ReferenceMaterialModule({ store }: ReferenceProps) {
 
                               doc.setFontSize(4);
                               doc.setTextColor(200, 0, 0);
-                              doc.text("BO CONG AN", 150, sigY + 18, { align: "center" });
-                              doc.text("BAN QUAN LY", 150, sigY + 22, { align: "center" });
-                              doc.text("QUY CHUAN PCCC", 150, sigY + 26, { align: "center" });
+                              doc.text(isUnicode ? "BỘ CÔNG AN" : "BO CONG AN", 150, sigY + 18, { align: "center" });
+                              doc.text(isUnicode ? "BAN QUẢN LÝ" : "BAN QUAN LY", 150, sigY + 22, { align: "center" });
+                              doc.text(isUnicode ? "QUY CHUẨN PCCC" : "QUY CHUAN PCCC", 150, sigY + 26, { align: "center" });
 
-                              let finalName = viewingMaterial.fileUrl;
-                              if (!finalName.toLowerCase().endsWith('.pdf')) {
-                                finalName += '.pdf';
-                              }
-                              doc.save(finalName);
+                              const finalName = viewingMaterial.fileUrl || "tai_lieu_dinh_kem.pdf";
+                              downloadPdfBlob(doc, finalName);
                             } catch (err) {
-                              console.error("Failed to generate reference PDF via jsPDF, falling back", err);
-                              const element = document.createElement("a");
-                              const file = new Blob(["Nội dung tài liệu quy chuẩn kỹ thuật: " + viewingMaterial.fileUrl], {type: 'text/plain'});
-                              element.href = URL.createObjectURL(file);
-                              element.download = viewingMaterial.fileUrl;
-                              document.body.appendChild(element);
-                              element.click();
-                              document.body.removeChild(element);
+                              console.error("Failed to generate reference PDF:", err);
+                              alert("Đã xảy ra lỗi khi tạo tài liệu PDF.");
                             }
                           }}
                           className="flex items-center gap-1 bg-red-650 hover:bg-red-700 text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded transition-all cursor-pointer shadow-2xs"
@@ -1191,54 +1169,41 @@ export default function ReferenceMaterialModule({ store }: ReferenceProps) {
 
                   <button
                     type="button"
-                    onClick={() => {
-                      const cleanStr = (str: string) => {
-                        if (!str) return '';
-                        let co = str.toString();
-                        co = co.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
-                        co = co.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, "e");
-                        co = co.replace(/ì|í|ị|ỉ|ĩ/g, "i");
-                        co = co.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, "o");
-                        co = co.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, "u");
-                        co = co.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, "y");
-                        co = co.replace(/đ/g, "d");
-                        co = co.replace(/À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ/g, "A");
-                        co = co.replace(/È|É|Ẹ|Ẻ|Ẽ|Ê|Ề|Ế|Ệ|Ể|Ễ/g, "E");
-                        co = co.replace(/Ì|Í|Ị|Ỉ|Ĩ/g, "I");
-                        co = co.replace(/Ò|Ó|Ọ|Bả|Õ|Ô|Ồ|Ố|Ộ|Ổ|Ỗ|Ơ|Ờ|Ớ|Ợ|Ở|Ỡ/g, "O");
-                        co = co.replace(/Ù|Ú|Ụ|Ủ|Ũ|Ư|Ừ|Ứ|Ự|Ử|Ữ/g, "U");
-                        co = co.replace(/Ỳ|Ý|Y|Ỷ|Ỹ/g, "Y");
-                        co = co.replace(/Đ/g, "D");
-                        return co.replace(/[^\x20-\x7E]/g, "");
-                      };
-
+                    onClick={async () => {
                       try {
-                        const doc = new jsPDF();
+                        const { doc, isUnicode } = await createVietnameseDoc();
+                        const fontFamily = isUnicode ? "Roboto" : "Helvetica";
+
+                        const cleanStr = (str: string) => {
+                          if (!str) return '';
+                          return isUnicode ? str.toString() : stripAccents(str.toString());
+                        };
+
                         doc.setDrawColor(210, 210, 210);
                         doc.rect(10, 10, 190, 277);
-                        doc.setFont("Helvetica", "bold");
+                        
+                        doc.setFont(fontFamily, "bold");
                         doc.setFontSize(8);
-                        doc.text("BO CONG AN - VIET NAM", 15, 20);
-                        doc.text("CUC CANH SAT PCCC & CNCH", 15, 24);
-                        doc.text("CONG HOA XA HOI CHU NGHIA VIET NAM", 110, 20);
+                        doc.text(isUnicode ? "BỘ CÔNG AN - VIỆT NAM" : "BO CONG AN - VIET NAM", 15, 20);
+                        doc.text(isUnicode ? "CỤC CẢNH SÁT PCCC & CNCH" : "CUC CANH SAT PCCC & CNCH", 15, 24);
+                        doc.text(isUnicode ? "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM" : "CONG HOA XA HOI CHU NGHIA VIET NAM", 110, 20);
                         doc.setFontSize(7.5);
-                        doc.text("Doc lap - Tu do - Hanh phuc", 128, 24);
+                        doc.text(isUnicode ? "Độc lập - Tự do - Hạnh phúc" : "Doc lap - Tu do - Hanh phuc", 128, 24);
                         doc.line(128, 26, 168, 26);
+                        
                         doc.setLineWidth(0.4);
                         doc.line(15, 34, 195, 34);
                         doc.setFontSize(11);
-                        doc.text("VAN BAN QUY CHUAN KY THUAT - PHAP LUAT", 105, 45, { align: "center" });
+                        doc.text(isUnicode ? "VĂN BẢN QUY CHUẨN KỸ THUẬT - PHÁP LUẬT" : "VAN BAN QUY CHUAN KY THUAT - PHAP LUAT", 105, 45, { align: "center" });
                         doc.setFontSize(9);
-                        doc.setFont("Helvetica", "bolditalic");
+                        doc.setFont(fontFamily, "bolditalic");
                         doc.text(cleanStr(previewingMaterial.title).toUpperCase(), 105, 52, { align: "center" });
                         
-                        let finalName = previewingMaterial.fileUrl || "tai_lieu_so_hoa.pdf";
-                        if (!finalName.toLowerCase().endsWith('.pdf')) {
-                          finalName += '.pdf';
-                        }
-                        doc.save(finalName);
+                        const finalName = previewingMaterial.fileUrl || "tai_lieu_so_hoa.pdf";
+                        downloadPdfBlob(doc, finalName);
                       } catch (e) {
                         console.error(e);
+                        alert("Đã xảy ra lỗi khi tạo tài liệu PDF.");
                       }
                     }}
                     className="w-full mt-2 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-200 font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"

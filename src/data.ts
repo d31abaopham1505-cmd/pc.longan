@@ -621,7 +621,8 @@ export const INITIAL_TASKS: TaskWork[] = [
     deadline: '2026-06-18',
     priority: 'Cao',
     status: 'Đang xử lý',
-    resultNotes: 'Phối hợp cùng tổ chuyên môn và đại diện ban văn hóa truyền thông phường sở tại.'
+    resultNotes: 'Phối hợp cùng tổ chuyên môn và đại diện ban văn hóa truyền thông phường sở tại.',
+    recurrence: 'Hàng tháng'
   },
   {
     id: 'TASK_002',
@@ -633,7 +634,8 @@ export const INITIAL_TASKS: TaskWork[] = [
     deadline: '2026-06-12',
     priority: 'Trung bình',
     status: 'Hoàn thành',
-    resultNotes: 'Đã hoàn thành và lập báo cáo tổng hợp gửi cấp trên duyệt ngày 11/06.'
+    resultNotes: 'Đã hoàn thành và lập báo cáo tổng hợp gửi cấp trên duyệt ngày 11/06.',
+    recurrence: 'Hàng năm'
   },
   {
     id: 'TASK_003',
@@ -657,7 +659,8 @@ export const INITIAL_TASKS: TaskWork[] = [
     deadline: '2026-06-08',
     priority: 'Thấp',
     status: 'Quá hạn',
-    resultNotes: 'Chưa thấy cán bộ nộp báo cáo tổng hợp hoàn tất.'
+    resultNotes: 'Chưa thấy cán bộ nộp báo cáo tổng hợp hoàn tất.',
+    recurrence: 'Hàng tuần'
   },
   {
     id: 'TASK_005',

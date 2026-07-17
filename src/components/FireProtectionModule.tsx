@@ -2,10 +2,11 @@ import { useState, useMemo } from 'react';
 import { PCCCStoreType } from '../lib/store';
 import { Facility, FireInspection } from '../types';
 import { formatDateDMY } from '../lib/dateUtils';
+import * as XLSX from 'xlsx';
 import { 
   Building2, ShieldAlert, Sparkles, Filter, Plus, Trash2, Edit2, 
   MapPin, Phone, User, CheckCircle2, AlertCircle, FileText, CalendarDays, Search, X, Download, Paperclip,
-  RefreshCw, Save
+  RefreshCw, Save, Upload, Check, AlertTriangle, FileSpreadsheet
 } from 'lucide-react';
 
 interface FireProtectionProps {
@@ -44,6 +45,7 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
   const [facSearch, setFacSearch] = useState('');
   const [facWard, setFacWard] = useState('All');
   const [facDanger, setFacDanger] = useState('All');
+  const [facManagementLevelFilter, setFacManagementLevelFilter] = useState('All');
   const [facSectorFilter, setFacSectorFilter] = useState('All');
   const [facCategoryFilter, setFacCategoryFilter] = useState('All');
   const [facIndustryFilter, setFacIndustryFilter] = useState('All');
@@ -75,8 +77,17 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
   const [facStatus, setFacStatus] = useState<Facility['status']>('Hoạt động');
   const [facNotes, setFacNotes] = useState('');
   const [facOfficerId, setFacOfficerId] = useState('');
+  const [facIndustrialZone, setFacIndustrialZone] = useState<Facility['industrialZone']>('Ngoài KCN, KCX, CCN');
+  const [facLocalForceType, setFacLocalForceType] = useState<Facility['localForceType']>('Cơ sở');
+  const [facLocalForceCount, setFacLocalForceCount] = useState<number>(0);
   const [facLastInspectionDate, setFacLastInspectionDate] = useState('');
   const [selectedFacilityIds, setSelectedFacilityIds] = useState<string[]>([]);
+
+  // Excel Import states
+  const [isImportingExcel, setIsImportingExcel] = useState(false);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [parsedFacilities, setParsedFacilities] = useState<any[]>([]);
+  const [importStatus, setImportStatus] = useState<{ type: 'idle' | 'success' | 'error'; message: string }>({ type: 'idle', message: '' });
 
   // Inspection states
   const [inspSearch, setInspSearch] = useState('');
@@ -90,6 +101,12 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
 
   const [editingInspection, setEditingInspection] = useState<FireInspection | null>(null);
   const [isAddingInspection, setIsAddingInspection] = useState(false);
+
+  // Inspection Excel Import states
+  const [isImportingInspExcel, setIsImportingInspExcel] = useState(false);
+  const [inspExcelFile, setInspExcelFile] = useState<File | null>(null);
+  const [parsedInspections, setParsedInspections] = useState<any[]>([]);
+  const [inspImportStatus, setInspImportStatus] = useState<{ type: 'idle' | 'success' | 'error'; message: string }>({ type: 'idle', message: '' });
 
   // Inspection Form state
   const [inspFacId, setInspFacId] = useState('');
@@ -113,6 +130,9 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
   const [inspFacilityStatus, setInspFacilityStatus] = useState<Facility['status']>('Hoạt động');
   const [inspNotes, setInspNotes] = useState('');
   const [inspLegalBasis, setInspLegalBasis] = useState('');
+  const [inspIndustrialZone, setInspIndustrialZone] = useState<Facility['industrialZone']>('Ngoài KCN, KCX, CCN');
+  const [inspLocalForceType, setInspLocalForceType] = useState<Facility['localForceType']>('Cơ sở');
+  const [inspLocalForceCount, setInspLocalForceCount] = useState<number>(0);
 
   const WARD_OPTIONS = useMemo(() => {
     const unique = new Set<string>();
@@ -333,6 +353,9 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
     setFacStatus(facility.status);
     setFacNotes(facility.notes || '');
     setFacOfficerId(facility.officerId || '');
+    setFacIndustrialZone(facility.industrialZone || 'Ngoài KCN, KCX, CCN');
+    setFacLocalForceType(facility.localForceType || 'Cơ sở');
+    setFacLocalForceCount(facility.localForceCount || 0);
     setFacLastInspectionDate(facility.lastInspectionDate || '');
     setIsAddingFacility(false);
   };
@@ -359,6 +382,9 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
     setFacStatus('Hoạt động');
     setFacNotes('');
     setFacOfficerId('');
+    setFacIndustrialZone('Ngoài KCN, KCX, CCN');
+    setFacLocalForceType('Cơ sở');
+    setFacLocalForceCount(0);
     setFacLastInspectionDate('');
     setIsAddingFacility(true);
   };
@@ -399,6 +425,9 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
       economicSector: facEconomicSector || undefined,
       investmentType: facInvestmentType || undefined,
       ownershipType: facOwnershipType || undefined,
+      industrialZone: facIndustrialZone || undefined,
+      localForceType: facLocalForceType || undefined,
+      localForceCount: facLocalForceCount !== undefined ? Number(facLocalForceCount) : undefined,
     };
 
     if (isAddingFacility) {
@@ -426,6 +455,7 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
       'Tên cơ sở',
       'Địa chỉ chi tiết',
       'Xã, phường',
+      'Khu công nghiệp / Cụm công nghiệp',
       'Người đại diện',
       'Điện thoại',
       'Lĩnh vực',
@@ -437,6 +467,8 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
       'Hình thức đầu tư',
       'Hình thức sở hữu',
       'Phân loại theo phụ lục II',
+      'Lực lượng tại chỗ',
+      'Số lượng lực lượng tại chỗ (người)',
       'Thẩm quyền quản lý',
       'Số hồ sơ nghiệp vụ',
       'Ngày lập',
@@ -462,6 +494,7 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
         fac.name,
         fac.address,
         fac.ward,
+        fac.industrialZone || 'Ngoài KCN, KCX, CCN',
         fac.representative,
         fac.phone,
         fac.sector || '',
@@ -473,6 +506,8 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
         fac.investmentType || '',
         fac.ownershipType || '',
         fac.dangerLevel,
+        fac.localForceType || 'Cơ sở',
+        fac.localForceCount !== undefined ? fac.localForceCount.toString() : '0',
         fac.managementLevel,
         fac.dossierNumber || '',
         fac.createdDate || '',
@@ -493,6 +528,804 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleDownloadImportTemplate = () => {
+    try {
+      const templateHeaders = [
+        'Mã cơ sở (*)',
+        'Tên cơ sở (*)',
+        'Địa chỉ chi tiết (*)',
+        'Xã, phường (*)',
+        'Khu công nghiệp / Cụm công nghiệp',
+        'Người đại diện (*)',
+        'Điện thoại (*)',
+        'Lĩnh vực (*)',
+        'Phân loại cơ sở (*)',
+        'Ngành nghề (*)',
+        'Trạng thái hoạt động (*)',
+        'Năm hoạt động',
+        'Thành phần kinh tế',
+        'Hình thức đầu tư',
+        'Hình thức sở hữu',
+        'Phân loại theo Phụ lục II (*)',
+        'Lực lượng tại chỗ',
+        'Số lượng lực lượng tại chỗ (người)',
+        'Thẩm quyền quản lý (*)',
+        'Số hồ sơ nghiệp vụ',
+        'Ngày lập (YYYY-MM-DD)',
+        'Cán bộ quản lý địa bàn (Tên hoặc Mã)',
+        'Ghi chú'
+      ];
+
+      // Build sample rows
+      const sampleRows = [
+        [
+          'FAC_TEST_001',
+          'Chung cư Cao cấp Vạn Phúc Plaza',
+          'Số 234 Đường Nguyễn Trãi',
+          WARD_OPTIONS[0] || 'Phường Long An',
+          'Ngoài KCN, KCX, CCN',
+          'Trần Quốc Bảo',
+          '0912345678',
+          'Lĩnh vực nhà ở, trụ sở làm việc, văn phòng, nhà đa năng',
+          'Nhà chung cư',
+          'Dịch vụ nhà ở',
+          'Hoạt động',
+          '2022',
+          'Tư nhân',
+          'Trong nước',
+          'Chính chủ',
+          'Nhóm I',
+          'Cơ sở',
+          '8',
+          'Cấp tỉnh quản lý',
+          'HS-PCCC-001/2026',
+          '2026-02-15',
+          officers?.filter(o => o.position !== 'Chiến sĩ')[0]?.fullName || 'Nguyễn Văn Trọng',
+          'Hồ sơ đã phê duyệt đầy đủ trang thiết bị.'
+        ],
+        [
+          'FAC_TEST_002',
+          'Xưởng May Mặc Thành Đạt',
+          'Lô B2, Đường số 4, KCN Phú An',
+          WARD_OPTIONS[1] || 'Phường Tân An',
+          'KCN, KCX',
+          'Lê Hồng Phong',
+          '0987654321',
+          'Lĩnh vực cơ sở công nghiệp, nhà kho',
+          'Nhà máy sản xuất khác',
+          'May mặc',
+          'Tạm ngừng hoạt động',
+          '2020',
+          'Tư nhân',
+          'Trong nước',
+          'Thuê',
+          'Nhóm II',
+          'Cơ sở',
+          '15',
+          'Cấp xã quản lý',
+          'HS-PCCC-002/2026',
+          '2026-03-20',
+          officers?.filter(o => o.position !== 'Chiến sĩ')[1]?.fullName || 'Trần Văn Hoàng',
+          'Đang tạm ngừng để bảo dưỡng hệ thống chữa cháy tự động.'
+        ]
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet([templateHeaders, ...sampleRows]);
+      
+      // Auto-fit column widths
+      const maxColWidths = templateHeaders.map((h, i) => {
+        const val1 = h.length;
+        const val2 = sampleRows[0][i] ? String(sampleRows[0][i]).length : 0;
+        const val3 = sampleRows[1][i] ? String(sampleRows[1][i]).length : 0;
+        return { wch: Math.max(val1, val2, val3) + 4 };
+      });
+      ws['!cols'] = maxColWidths;
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Mẫu cơ sở quản lý');
+      
+      XLSX.writeFile(wb, 'Mau_Khai_Bao_Co_So_Quan_Ly_PCCC.xlsx');
+    } catch (err) {
+      console.error('Lỗi khi tải file mẫu:', err);
+      alert('Không thể tạo file mẫu excel. Vui lòng thử lại.');
+    }
+  };
+
+  const handleParseExcelFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        if (!data) return;
+        
+        const workbook = XLSX.read(data, { type: 'binary' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        
+        // Convert sheet to raw array
+        const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+        if (rawRows.length < 2) {
+          setImportStatus({ type: 'error', message: 'File Excel không có dữ liệu hoặc sai cấu trúc.' });
+          return;
+        }
+
+        const headers = rawRows[0].map(h => String(h).trim());
+        const dataRows = rawRows.slice(1);
+
+        // Find matches for each header field to be extremely resilient
+        const colMap: Record<string, number> = {};
+        const headerTerms: Record<string, string[]> = {
+          id: ['Mã cơ sở', 'Mã cơ sở (*)', 'Ma co so', 'Mã', 'id'],
+          name: ['Tên cơ sở', 'Tên cơ sở (*)', 'Ten co so', 'Tên', 'name'],
+          address: ['Địa chỉ chi tiết', 'Địa chỉ chi tiết (*)', 'Dia chi chi tiet', 'Địa chỉ', 'address'],
+          ward: ['Xã, phường', 'Xã, phường (*)', 'Xa, phuong', 'Phường', 'Xã', 'ward'],
+          industrialZone: ['Khu công nghiệp / Cụm công nghiệp', 'KCN', 'Khu công nghiệp', 'industrialZone'],
+          representative: ['Người đại diện', 'Người đại diện (*)', 'Nguoi dai dien', 'representative'],
+          phone: ['Điện thoại', 'Điện thoại (*)', 'Dien thoai', 'SĐT', 'phone'],
+          sector: ['Lĩnh vực', 'Lĩnh vực (*)', 'Linh vuc', 'sector'],
+          category: ['Phân loại cơ sở', 'Phân loại cơ sở (*)', 'Phan loai co so', 'Loại hình', 'category'],
+          industry: ['Ngành nghề', 'Ngành nghề (*)', 'Nganh nghe', 'industry'],
+          status: ['Trạng thái hoạt động', 'Trạng thái hoạt động (*)', 'Trang thai hoat dong', 'Trạng thái', 'status'],
+          operationYear: ['Năm hoạt động', 'Nam hoat dong', 'Năm đưa vào hoạt động', 'operationYear'],
+          economicSector: ['Thành phần kinh tế', 'Thanh phan kinh te', 'economicSector'],
+          investmentType: ['Hình thức đầu tư', 'Hinh thuc dau tu', 'investmentType'],
+          ownershipType: ['Hình thức sở hữu', 'Hinh thuc so huu', 'ownershipType'],
+          dangerLevel: ['Phân loại theo Phụ lục II', 'Phân loại theo Phụ lục II (*)', 'Phan loai theo Phu luc II', 'Phụ lục II', 'dangerLevel'],
+          localForceType: ['Lực lượng tại chỗ', 'Luc luong tai cho', 'localForceType'],
+          localForceCount: ['Số lượng lực lượng tại chỗ (người)', 'Số lượng lực lượng tại chỗ', 'localForceCount'],
+          managementLevel: ['Thẩm quyền quản lý', 'Thẩm quyền quản lý (*)', 'Tham quyen quan ly', 'Diện quản lý', 'managementLevel'],
+          dossierNumber: ['Số hồ sơ nghiệp vụ', 'So ho so nghiep vu', 'Số hồ sơ', 'dossierNumber'],
+          createdDate: ['Ngày lập', 'Ngày lập (YYYY-MM-DD)', 'Ngay lap', 'createdDate'],
+          officerId: ['Cán bộ quản lý địa bàn', 'Cán bộ quản lý địa bàn (Tên hoặc Mã)', 'Can bo quan ly', 'Cán bộ', 'officerId'],
+          notes: ['Ghi chú', 'Ghi chu', 'Ghi chú thêm', 'notes']
+        };
+
+        // Populate colMap with index of matched headers
+        Object.keys(headerTerms).forEach(field => {
+          const terms = headerTerms[field];
+          const matchedIdx = headers.findIndex(h => 
+            terms.some(term => h.toLowerCase().includes(term.toLowerCase()))
+          );
+          if (matchedIdx !== -1) {
+            colMap[field] = matchedIdx;
+          }
+        });
+
+        // Fallback default indices
+        const fallbackIndices: Record<string, number> = {
+          id: 0, name: 1, address: 2, ward: 3, industrialZone: 4, representative: 5,
+          phone: 6, sector: 7, category: 8, industry: 9, status: 10, operationYear: 11,
+          economicSector: 12, investmentType: 13, ownershipType: 14, dangerLevel: 15,
+          localForceType: 16, localForceCount: 17, managementLevel: 18, dossierNumber: 19,
+          createdDate: 20, officerId: 21, notes: 22
+        };
+
+        const parsed: any[] = [];
+
+        dataRows.forEach((row, idx) => {
+          if (!row || row.length === 0 || row.every(val => val === null || val === undefined || String(val).trim() === '')) {
+            return;
+          }
+
+          const getVal = (field: string, defaultVal: any = '') => {
+            const index = colMap[field] !== undefined ? colMap[field] : fallbackIndices[field];
+            const rawVal = row[index];
+            if (rawVal === undefined || rawVal === null) return defaultVal;
+            return String(rawVal).trim();
+          };
+
+          const rawId = getVal('id');
+          const rawName = getVal('name');
+          const rawAddress = getVal('address');
+
+          const errors: string[] = [];
+          const warnings: string[] = [];
+
+          if (!rawId) errors.push('Thiếu Mã cơ sở');
+          if (!rawName) errors.push('Thiếu Tên cơ sở');
+          if (!rawAddress) errors.push('Thiếu Địa chỉ chi tiết');
+
+          const rawWard = getVal('ward');
+          const rawRep = getVal('representative');
+          const rawPhone = getVal('phone');
+          const rawSector = getVal('sector');
+          const rawCategory = getVal('category');
+          const rawIndustry = getVal('industry');
+          const rawStatus = getVal('status');
+
+          if (!rawWard) warnings.push('Xã/phường trống - mặc định: Vạn Phúc');
+          if (!rawRep) warnings.push('Trống tên Người đại diện');
+          if (!rawPhone) warnings.push('Trống số Điện thoại');
+          if (!rawSector) warnings.push('Trống Lĩnh vực - mặc định: Lĩnh vực nhà ở...');
+          if (!rawCategory) warnings.push('Trống Phân loại cơ sở - mặc định: Nhà chung cư');
+          if (!rawIndustry) warnings.push('Trống Ngành nghề - mặc định: Dịch vụ');
+
+          const isDuplicate = facilities.some(f => f.id === rawId);
+          if (isDuplicate && rawId) {
+            warnings.push('Mã cơ sở đã tồn tại - Sẽ ghi đè');
+          }
+
+          const rawOfficerText = getVal('officerId');
+          let resolvedOfficerId = '';
+          if (rawOfficerText) {
+            const cleanOfficer = rawOfficerText.trim().toLowerCase();
+            const officerMatch = officers?.find(o => 
+              o.id.toLowerCase() === cleanOfficer || 
+              o.fullName.toLowerCase() === cleanOfficer || 
+              `${o.rank} ${o.fullName}`.toLowerCase().includes(cleanOfficer) ||
+              cleanOfficer.includes(o.fullName.toLowerCase())
+            );
+            if (officerMatch) {
+              resolvedOfficerId = officerMatch.id;
+            } else {
+              warnings.push(`Không tìm thấy cán bộ "${rawOfficerText}" - Sẽ để trống`);
+            }
+          }
+
+          const rawForceCount = getVal('localForceCount');
+          let resolvedForceCount = 0;
+          if (rawForceCount) {
+            const parsedInt = parseInt(rawForceCount);
+            if (!isNaN(parsedInt)) {
+              resolvedForceCount = Math.max(0, parsedInt);
+            }
+          }
+
+          let resolvedManagementLevel: 'Cấp tỉnh quản lý' | 'Cấp xã quản lý' = 'Cấp xã quản lý';
+          const rawMgmt = getVal('managementLevel');
+          if (rawMgmt && rawMgmt.includes('tỉnh')) {
+            resolvedManagementLevel = 'Cấp tỉnh quản lý';
+          }
+
+          let resolvedDangerLevel: 'Nhóm I' | 'Nhóm II' = 'Nhóm II';
+          const rawDanger = getVal('dangerLevel');
+          if (rawDanger && rawDanger.includes('I') && !rawDanger.includes('II')) {
+            resolvedDangerLevel = 'Nhóm I';
+          }
+
+          let resolvedZone: Facility['industrialZone'] = 'Ngoài KCN, KCX, CCN';
+          const rawZone = getVal('industrialZone');
+          if (rawZone) {
+            if (rawZone.includes('KCN') || rawZone.includes('KCX')) resolvedZone = 'KCN, KCX';
+            else if (rawZone.includes('CCN')) resolvedZone = 'CCN';
+          }
+
+          let resolvedForceType: Facility['localForceType'] = 'Cơ sở';
+          const rawForceType = getVal('localForceType');
+          if (rawForceType) {
+            if (rawForceType.includes('chuyên ngành') || rawForceType.includes('Chuyên ngành')) resolvedForceType = 'Chuyên ngành';
+            else if (rawForceType.includes('phân công') || rawForceType.includes('Phân công')) resolvedForceType = 'Phân công';
+          }
+
+          let resolvedStatus: Facility['status'] = 'Hoạt động';
+          if (rawStatus) {
+            const s = rawStatus.toLowerCase();
+            if (s.includes('tạm ngừng') || s.includes('tạm dừng')) resolvedStatus = 'Tạm ngừng hoạt động';
+            else if (s.includes('ngừng') || s.includes('dừng') || s.includes('đình chỉ')) resolvedStatus = 'Ngừng hoạt động';
+          }
+
+          const rawEco = getVal('economicSector');
+          let resolvedEco = '';
+          if (rawEco) {
+            if (rawEco.includes('Nhà nước')) resolvedEco = 'Nhà nước';
+            else if (rawEco.includes('Tập thể')) resolvedEco = 'Tập thể';
+            else if (rawEco.includes('Tư nhân')) resolvedEco = 'Tư nhân';
+            else if (rawEco.includes('nước ngoài')) resolvedEco = 'Có vốn đầu tư nước ngoài';
+            else resolvedEco = 'Khác';
+          }
+
+          const rawInvest = getVal('investmentType');
+          let resolvedInvest = '';
+          if (rawInvest) {
+            if (rawInvest.includes('nước ngoài') || rawInvest.includes('Nước ngoài')) resolvedInvest = 'Nước ngoài';
+            else if (rawInvest.includes('Liên doanh')) resolvedInvest = 'Liên doanh với nước ngoài';
+            else resolvedInvest = 'Trong nước';
+          }
+
+          const rawOwner = getVal('ownershipType');
+          let resolvedOwner = '';
+          if (rawOwner) {
+            if (rawOwner.includes('Thuê') || rawOwner.includes('thuê')) resolvedOwner = 'Thuê';
+            else resolvedOwner = 'Chính chủ';
+          }
+
+          parsed.push({
+            id: rawId || `FAC_TEMP_${idx}`,
+            name: rawName || '',
+            address: rawAddress || '',
+            ward: rawWard || 'Vạn Phúc',
+            industrialZone: resolvedZone,
+            representative: rawRep || 'Chưa rõ',
+            phone: rawPhone || 'Chưa rõ',
+            sector: rawSector || 'Lĩnh vực nhà ở, trụ sở làm việc, văn phòng, nhà đa năng',
+            category: rawCategory || 'Nhà chung cư',
+            industry: rawIndustry || 'Kinh doanh dịch vụ',
+            status: resolvedStatus,
+            operationYear: getVal('operationYear'),
+            economicSector: resolvedEco,
+            investmentType: resolvedInvest,
+            ownershipType: resolvedOwner,
+            dangerLevel: resolvedDangerLevel,
+            managementLevel: resolvedManagementLevel,
+            localForceType: resolvedForceType,
+            localForceCount: resolvedForceCount,
+            dossierNumber: getVal('dossierNumber'),
+            createdDate: getVal('createdDate'),
+            officerId: resolvedOfficerId,
+            notes: getVal('notes'),
+            errors,
+            warnings,
+            isDuplicate
+          });
+        });
+
+        setParsedFacilities(parsed);
+        setImportStatus({ type: 'idle', message: `Đã đọc thành công ${parsed.length} dòng dữ liệu.` });
+      } catch (err) {
+        console.error(err);
+        setImportStatus({ type: 'error', message: 'Lỗi khi đọc file Excel. Định dạng không hợp lệ.' });
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleCommitImport = () => {
+    const validFacilities = parsedFacilities.filter(f => f.errors.length === 0);
+    if (validFacilities.length === 0) {
+      setImportStatus({ type: 'error', message: 'Không có cơ sở hợp lệ nào để nhập.' });
+      return;
+    }
+
+    const updatedFacilities = [...facilities];
+    validFacilities.forEach(newFac => {
+      const schemaFac: Facility = {
+        id: newFac.id,
+        name: newFac.name,
+        address: newFac.address,
+        ward: newFac.ward,
+        industrialZone: newFac.industrialZone,
+        representative: newFac.representative,
+        phone: newFac.phone,
+        sector: newFac.sector,
+        category: newFac.category,
+        industry: newFac.industry,
+        status: newFac.status,
+        operationYear: newFac.operationYear,
+        economicSector: newFac.economicSector,
+        investmentType: newFac.investmentType,
+        ownershipType: newFac.ownershipType,
+        dangerLevel: newFac.dangerLevel,
+        managementLevel: newFac.managementLevel,
+        localForceType: newFac.localForceType,
+        localForceCount: newFac.localForceCount,
+        dossierNumber: newFac.dossierNumber,
+        createdDate: newFac.createdDate,
+        officerId: newFac.officerId,
+        notes: newFac.notes
+      };
+
+      const existingIndex = updatedFacilities.findIndex(f => f.id === schemaFac.id);
+      if (existingIndex !== -1) {
+        updatedFacilities[existingIndex] = schemaFac;
+      } else {
+        updatedFacilities.push(schemaFac);
+      }
+    });
+
+    setFacilities(updatedFacilities);
+    localStorage.setItem('pccc_facilities', JSON.stringify(updatedFacilities));
+    
+    setImportStatus({
+      type: 'success',
+      message: `Đã nhập thành công ${validFacilities.length} cơ sở quản lý vào hệ thống!`
+    });
+
+    setTimeout(() => {
+      setIsImportingExcel(false);
+      setExcelFile(null);
+      setParsedFacilities([]);
+      setImportStatus({ type: 'idle', message: '' });
+    }, 2000);
+  };
+
+  const handleDownloadInspTemplate = () => {
+    const headers = [
+      'Mã biên bản (Không bắt buộc)',
+      'Mã cơ sở (*)',
+      'Tên cơ sở (Để tham khảo)',
+      'Ngày lập biên bản (*) (YYYY-MM-DD)',
+      'Hình thức kiểm tra (*) (Định kỳ / Đột xuất)',
+      'Đoàn kiểm tra / Cán bộ kiểm tra (Cách nhau bằng dấu phẩy)',
+      'Kế hoạch kiểm tra',
+      'Nội dung kiểm tra chính',
+      'Kết quả kiểm tra (*) (Đạt yêu cầu / Không đạt yêu cầu)',
+      'Tồn tại, sai phạm phát hiện (Nếu có)',
+      'Căn cứ theo quy định',
+      'Số tiền xử phạt (Nếu có - VNĐ)',
+      'Hạn khắc phục (YYYY-MM-DD)',
+      'Trạng thái xử lý lỗi (*) (Không có vi phạm / Chưa khắc phục / Đã khắc phục)',
+      'Phân loại nhóm theo Phụ lục II (Nhóm I / Nhóm II)',
+      'Lĩnh vực',
+      'Phân loại cơ sở (Loại hình)',
+      'Ngành nghề',
+      'Trạng thái hoạt động của cơ sở (Hoạt động / Ngừng hoạt động / Tạm ngừng hoạt động)',
+      'Lực lượng tại chỗ (Cơ sở / Chuyên ngành / Phân công)',
+      'Số lượng lực lượng tại chỗ (người)',
+      'Cán bộ quản lý địa bàn (Tên hoặc ID)',
+      'Ghi chú'
+    ];
+
+    const sampleFac1 = facilities[0];
+    const sampleFac2 = facilities[1];
+    
+    const sampleOfficer1 = officers?.[0];
+    const sampleOfficer2 = officers?.[1];
+
+    const row1 = [
+      'INSP_EXCEL_001',
+      sampleFac1?.id || 'FAC_001',
+      sampleFac1?.name || 'Chung cư Cao cấp Vạn Phúc Plaza',
+      new Date().toISOString().split('T')[0],
+      'Định kỳ',
+      'Nguyễn Văn A, Trần Văn B',
+      'Kế hoạch kiểm tra an toàn PCCC Quý II - 2026',
+      'Kiểm tra định kỳ hệ thống báo cháy, trụ nước chữa cháy, lối thoát hiểm của tòa nhà.',
+      'Đạt yêu cầu',
+      '',
+      'Nghị định 136/2020/NĐ-CP',
+      '',
+      '',
+      'Không có vi phạm',
+      sampleFac1?.dangerLevel || 'Nhóm I',
+      sampleFac1?.sector || 'Lĩnh vực nhà ở, trụ sở làm việc, văn phòng, nhà đa năng',
+      sampleFac1?.category || 'Nhà chung cư',
+      sampleFac1?.industry || 'Quản lý vận hành nhà chung cư',
+      sampleFac1?.status || 'Hoạt động',
+      sampleFac1?.localForceType || 'Cơ sở',
+      sampleFac1?.localForceCount !== undefined ? String(sampleFac1.localForceCount) : '10',
+      sampleOfficer1?.fullName || 'Nguyễn Văn Hùng',
+      'Cơ sở duy trì tốt công tác PCCC thường trực'
+    ];
+
+    const row2 = [
+      'INSP_EXCEL_002',
+      sampleFac2?.id || 'FAC_002',
+      sampleFac2?.name || 'Xưởng May Mặc Thành Đạt',
+      new Date().toISOString().split('T')[0],
+      'Đột xuất',
+      'Trần Văn C',
+      'Quyết định kiểm tra đột xuất số 120/QĐ-CAT',
+      'Kiểm tra đột xuất điều kiện an toàn phòng cháy đối với khu sản xuất.',
+      'Không đạt yêu cầu',
+      'Hệ thống họng nước vách tường bị khóa van tổng; 02 bình chữa cháy hết hạn sạc khí.',
+      'Nghị định 144/2021/NĐ-CP',
+      '4500000',
+      new Date(Date.now() + 15*24*60*60*1000).toISOString().split('T')[0],
+      'Chưa khắc phục',
+      sampleFac2?.dangerLevel || 'Nhóm II',
+      sampleFac2?.sector || 'Lĩnh vực cơ sở công nghiệp, nhà kho',
+      sampleFac2?.category || 'Nhà sản xuất',
+      sampleFac2?.industry || 'Sản xuất may mặc xuất khẩu',
+      sampleFac2?.status || 'Hoạt động',
+      sampleFac2?.localForceType || 'Cơ sở',
+      sampleFac2?.localForceCount !== undefined ? String(sampleFac2.localForceCount) : '15',
+      sampleOfficer2?.fullName || 'Lê Văn Tám',
+      'Yêu cầu khắc phục dứt điểm trước thời hạn, đã lập biên bản xử phạt vi phạm hành chính.'
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers, row1, row2]);
+    ws['!cols'] = headers.map(() => ({ wch: 25 }));
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Mau_Bien_Ban');
+    XLSX.writeFile(wb, 'Mau_File_Bien_Ban_Kiem_Tra.xlsx');
+  };
+
+  const handleParseInspExcelFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        const workbook = XLSX.read(data, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        
+        const rawRows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        if (rawRows.length < 2) {
+          setInspImportStatus({ type: 'error', message: 'File Excel trống hoặc không đúng cấu trúc.' });
+          return;
+        }
+
+        const headers = rawRows[0].map((h: any) => String(h || '').trim());
+        const dataRows = rawRows.slice(1);
+
+        const headerTerms: Record<string, string[]> = {
+          id: ['Mã biên bản', 'Ma bien ban', 'Mã BB', 'Mã', 'id'],
+          facilityId: ['Mã cơ sở', 'Mã cơ sở (*)', 'Ma co so', 'facilityId'],
+          facilityName: ['Tên cơ sở', 'Tên cơ sở (Để tham khảo)', 'Ten co so', 'facilityName'],
+          date: ['Ngày lập biên bản', 'Ngày lập biên bản (*)', 'Ngày kiểm tra', 'Ngay lap bien ban', 'Ngay kiem tra', 'date'],
+          type: ['Hình thức kiểm tra', 'Hình thức kiểm tra (*)', 'Hình thức', 'Loại biên bản', 'type'],
+          inspectors: ['Đoàn kiểm tra / Cán bộ kiểm tra', 'Đoàn kiểm tra', 'Cán bộ kiểm tra', 'inspectors'],
+          plan: ['Kế hoạch kiểm tra', 'Kế hoạch', 'plan'],
+          content: ['Nội dung kiểm tra chính', 'Nội dung', 'Nội dung kiểm tra', 'content'],
+          result: ['Kết quả kiểm tra', 'Kết quả kiểm tra (*)', 'Kết quả', 'result'],
+          violations: ['Tồn tại, sai phạm phát hiện', 'Tồn tại', 'Sai phạm', 'violations'],
+          legalBasis: ['Căn cứ theo quy định', 'Căn cứ pháp lý', 'Căn cứ', 'legalBasis'],
+          fineAmount: ['Số tiền xử phạt', 'Số tiền xử phạt (Nếu có - VNĐ)', 'Số tiền xử phạt (VNĐ)', 'Tiền phạt', 'fineAmount'],
+          deadline: ['Hạn khắc phục', 'Hạn khắc phục (YYYY-MM-DD)', 'Hạn khắc phục lỗi', 'deadline'],
+          remedyStatus: ['Trạng thái xử lý lỗi', 'Trạng thái xử lý lỗi (*)', 'Trạng thái xử lý', 'remedyStatus'],
+          appendixIi: ['Phân loại nhóm theo Phụ lục II', 'Phụ lục II', 'appendixIi'],
+          sector: ['Lĩnh vực', 'Linh vuc', 'sector'],
+          category: ['Phân loại cơ sở (Loại hình)', 'Phân loại cơ sở', 'Loại hình cơ sở', 'category'],
+          industry: ['Ngành nghề', 'Nganh nghe', 'industry'],
+          facilityStatus: ['Trạng thái hoạt động của cơ sở', 'Trạng thái hoạt động', 'facilityStatus'],
+          localForceType: ['Lực lượng tại chỗ', 'localForceType'],
+          localForceCount: ['Số lượng lực lượng tại chỗ (người)', 'Số lượng lực lượng tại chỗ', 'localForceCount'],
+          officerId: ['Cán bộ quản lý địa bàn', 'Cán bộ quản lý địa bàn (Tên hoặc ID)', 'officerId'],
+          notes: ['Ghi chú', 'notes']
+        };
+
+        const fallbackIndices: Record<string, number> = {
+          id: 0, facilityId: 1, facilityName: 2, date: 3, type: 4, inspectors: 5, plan: 6, content: 7,
+          result: 8, violations: 9, legalBasis: 10, fineAmount: 11, deadline: 12, remedyStatus: 13,
+          appendixIi: 14, sector: 15, category: 16, industry: 17, facilityStatus: 18,
+          localForceType: 19, localForceCount: 20, officerId: 21, notes: 22
+        };
+
+        const indices: Record<string, number> = {};
+        Object.keys(headerTerms).forEach(key => {
+          const terms = headerTerms[key];
+          const foundIdx = headers.findIndex((h: string) => 
+            terms.some(term => h.toLowerCase().includes(term.toLowerCase()))
+          );
+          indices[key] = foundIdx !== -1 ? foundIdx : fallbackIndices[key];
+        });
+
+        const parsed: any[] = [];
+        dataRows.forEach((row: any[], rowIdx: number) => {
+          if (!row || row.length === 0 || row.every(cell => cell === undefined || cell === '')) {
+            return;
+          }
+
+          const rawId = String(row[indices.id] || '').trim();
+          const rawFacilityId = String(row[indices.facilityId] || '').trim();
+          const rawFacilityName = String(row[indices.facilityName] || '').trim();
+          const rawDateStr = String(row[indices.date] || '').trim();
+          const rawType = String(row[indices.type] || '').trim();
+          const rawInspectors = String(row[indices.inspectors] || '').trim();
+          const rawPlan = String(row[indices.plan] || '').trim();
+          const rawContent = String(row[indices.content] || '').trim();
+          const rawResult = String(row[indices.result] || '').trim();
+          const rawViolations = String(row[indices.violations] || '').trim();
+          const rawLegalBasis = String(row[indices.legalBasis] || '').trim();
+          const rawFineAmount = String(row[indices.fineAmount] || '').trim();
+          const rawDeadline = String(row[indices.deadline] || '').trim();
+          const rawRemedyStatus = String(row[indices.remedyStatus] || '').trim();
+          const rawAppendixIi = String(row[indices.appendixIi] || '').trim();
+          const rawSector = String(row[indices.sector] || '').trim();
+          const rawCategory = String(row[indices.category] || '').trim();
+          const rawIndustry = String(row[indices.industry] || '').trim();
+          const rawFacilityStatus = String(row[indices.facilityStatus] || '').trim();
+          const rawLocalForceType = String(row[indices.localForceType] || '').trim();
+          const rawLocalForceCount = String(row[indices.localForceCount] || '').trim();
+          const rawOfficer = String(row[indices.officerId] || '').trim();
+          const rawNotes = String(row[indices.notes] || '').trim();
+
+          const errors: string[] = [];
+          const warnings: string[] = [];
+
+          if (!rawFacilityId) {
+            errors.push('Thiếu Mã cơ sở');
+          } else {
+            const facExists = facilities.some(f => f.id.toLowerCase() === rawFacilityId.toLowerCase());
+            if (!facExists) {
+              warnings.push(`Mã cơ sở "${rawFacilityId}" chưa có trong hệ thống`);
+            }
+          }
+
+          let dateFormatted = rawDateStr;
+          if (!rawDateStr) {
+            errors.push('Thiếu Ngày lập biên bản');
+          } else {
+            if (/^\d+(\.\d+)?$/.test(rawDateStr)) {
+              const excelDateNum = Number(rawDateStr);
+              const dateObj = new Date(Math.round((excelDateNum - 25569) * 86400 * 1000));
+              dateFormatted = dateObj.toISOString().split('T')[0];
+            } else {
+              const d = new Date(rawDateStr);
+              if (isNaN(d.getTime())) {
+                errors.push('Ngày lập biên bản sai định dạng YYYY-MM-DD');
+              } else {
+                dateFormatted = d.toISOString().split('T')[0];
+              }
+            }
+          }
+
+          let typeNorm: 'Định kỳ' | 'Đột xuất' | 'Chuyên đề' = 'Định kỳ';
+          if (rawType.includes('Đột xuất') || rawType.toLowerCase().includes('dot xuat')) {
+            typeNorm = 'Đột xuất';
+          } else if (rawType.includes('Chuyên đề') || rawType.toLowerCase().includes('chuyen de')) {
+            typeNorm = 'Chuyên đề';
+          }
+
+          let resultNorm: 'Đạt yêu cầu' | 'Không đạt yêu cầu' = 'Đạt yêu cầu';
+          if (rawResult.toLowerCase().includes('không đạt') || rawResult.toLowerCase().includes('khong dat') || rawResult === 'Không đạt yêu cầu') {
+            resultNorm = 'Không đạt yêu cầu';
+          }
+
+          let remedyStatusNorm: 'Không có vi phạm' | 'Chưa khắc phục' | 'Đang khắc phục' | 'Đã khắc phục xong' | 'Đã khắc phục' = 'Chưa khắc phục';
+          if (rawRemedyStatus) {
+            if (rawRemedyStatus.includes('Không có vi phạm') || rawRemedyStatus.toLowerCase().includes('khong co vi pham')) {
+              remedyStatusNorm = 'Không có vi phạm';
+            } else if (rawRemedyStatus.includes('Đang khắc phục') || rawRemedyStatus.toLowerCase().includes('dang khac phuc')) {
+              remedyStatusNorm = 'Đang khắc phục';
+            } else if (rawRemedyStatus.includes('Đã khắc phục xong') || rawRemedyStatus.toLowerCase().includes('da khac phuc song')) {
+              remedyStatusNorm = 'Đã khắc phục xong';
+            } else if (rawRemedyStatus.includes('Đã khắc phục') || rawRemedyStatus.toLowerCase().includes('da khac phuc')) {
+              remedyStatusNorm = 'Đã khắc phục';
+            }
+          } else {
+            if (resultNorm === 'Đạt yêu cầu') {
+              remedyStatusNorm = 'Không có vi phạm';
+            }
+          }
+
+          let officerIdMatched = '';
+          if (rawOfficer) {
+            const officerObj = officers?.find(o => 
+              o.fullName.toLowerCase() === rawOfficer.toLowerCase() ||
+              o.id.toLowerCase() === rawOfficer.toLowerCase()
+            );
+            if (officerObj) {
+              officerIdMatched = officerObj.id;
+            } else {
+              warnings.push(`Cán bộ "${rawOfficer}" không khớp`);
+            }
+          }
+
+          let isDuplicate = false;
+          let dupReason = '';
+          
+          const dbDup = inspections.find(i => 
+            (rawId && i.id.toLowerCase() === rawId.toLowerCase()) ||
+            (i.facilityId.toLowerCase() === rawFacilityId.toLowerCase() && i.date === dateFormatted)
+          );
+
+          const fileDup = parsed.find(p => 
+            p.errors.length === 0 &&
+            ((rawId && p.id.toLowerCase() === rawId.toLowerCase()) ||
+             (p.facilityId.toLowerCase() === rawFacilityId.toLowerCase() && p.date === dateFormatted))
+          );
+
+          if (dbDup) {
+            isDuplicate = true;
+            dupReason = rawId && dbDup.id.toLowerCase() === rawId.toLowerCase()
+              ? `Trùng Mã ID "${dbDup.id}" (Sẽ ghi đè)`
+              : `Trùng ngày & mã cơ sở với biên bản đã có ngày ${formatDateDMY(dbDup.date)} (Sẽ ghi đè)`;
+          } else if (fileDup) {
+            isDuplicate = true;
+            dupReason = 'Trùng với dòng khác trong file tải lên (Sẽ ghi đè)';
+          }
+
+          parsed.push({
+            id: rawId || `INSP_IMPORT_${Date.now()}_${rowIdx}`,
+            facilityId: rawFacilityId,
+            facilityName: rawFacilityName || facilities.find(f => f.id.toLowerCase() === rawFacilityId.toLowerCase())?.name || 'Cơ sở mới',
+            date: dateFormatted,
+            type: typeNorm,
+            inspectors: rawInspectors ? rawInspectors.split(',').map((n: string) => n.trim()) : [],
+            plan: rawPlan,
+            content: rawContent || 'Kiểm tra an toàn PCCC theo định kỳ cơ sở.',
+            result: resultNorm,
+            violations: rawViolations,
+            legalBasis: rawLegalBasis,
+            fineAmount: rawFineAmount ? Number(rawFineAmount) : undefined,
+            deadline: rawDeadline,
+            remedyStatus: remedyStatusNorm,
+            appendixIi: rawAppendixIi || 'Nhóm I',
+            sector: rawSector || 'Lĩnh vực nhà ở, trụ sở làm việc, văn phòng, nhà đa năng',
+            category: rawCategory,
+            industry: rawIndustry,
+            facilityStatus: (rawFacilityStatus as any) || 'Hoạt động',
+            localForceType: (rawLocalForceType as any) || 'Cơ sở',
+            localForceCount: rawLocalForceCount ? Number(rawLocalForceCount) : 0,
+            officerId: officerIdMatched || rawOfficer || undefined,
+            notes: rawNotes,
+            isDuplicate,
+            dupReason,
+            errors,
+            warnings
+          });
+        });
+
+        setParsedInspections(parsed);
+        setInspImportStatus({ type: 'idle', message: `Đã đọc thành công ${parsed.length} dòng dữ liệu.` });
+      } catch (err) {
+        console.error(err);
+        setInspImportStatus({ type: 'error', message: 'Lỗi khi đọc file Excel. Định dạng không hợp lệ.' });
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleCommitInspImport = () => {
+    const validInsps = parsedInspections.filter(i => i.errors.length === 0);
+    if (validInsps.length === 0) {
+      setInspImportStatus({ type: 'error', message: 'Không có biên bản hợp lệ nào để nhập.' });
+      return;
+    }
+
+    const updatedInsps = [...inspections];
+    const updatedFacilities = [...facilities];
+
+    validInsps.forEach(newInsp => {
+      const schemaInsp: FireInspection = {
+        id: newInsp.id,
+        facilityId: newInsp.facilityId,
+        date: newInsp.date,
+        type: newInsp.type,
+        inspectors: newInsp.inspectors,
+        content: newInsp.content,
+        result: newInsp.result,
+        appendixIiCategory: newInsp.appendixIi,
+        industry: newInsp.industry,
+        sector: newInsp.sector,
+        address: newInsp.address || facilities.find(f => f.id.toLowerCase() === newInsp.facilityId.toLowerCase())?.address || '',
+        facilityCategory: newInsp.category,
+        officerId: newInsp.officerId,
+        inspectionPlan: newInsp.plan,
+        violations: newInsp.violations || undefined,
+        remedyDeadline: newInsp.deadline || undefined,
+        remedyStatus: newInsp.remedyStatus,
+        fineAmount: newInsp.fineAmount,
+        facilityStatus: newInsp.facilityStatus,
+        notes: newInsp.notes || undefined,
+        legalBasis: newInsp.legalBasis || undefined,
+        industrialZone: facilities.find(f => f.id.toLowerCase() === newInsp.facilityId.toLowerCase())?.industrialZone || 'Ngoài KCN, KCX, CCN',
+        localForceType: newInsp.localForceType,
+        localForceCount: newInsp.localForceCount,
+      };
+
+      const existingIdx = updatedInsps.findIndex(i => 
+        i.id === schemaInsp.id || 
+        (i.facilityId === schemaInsp.facilityId && i.date === schemaInsp.date)
+      );
+
+      if (existingIdx !== -1) {
+        updatedInsps[existingIdx] = schemaInsp;
+      } else {
+        updatedInsps.push(schemaInsp);
+      }
+
+      const facIdx = updatedFacilities.findIndex(f => f.id.toLowerCase() === schemaInsp.facilityId.toLowerCase());
+      if (facIdx !== -1) {
+        updatedFacilities[facIdx] = {
+          ...updatedFacilities[facIdx],
+          status: schemaInsp.facilityStatus || updatedFacilities[facIdx].status,
+          lastInspectionDate: schemaInsp.date,
+          notes: schemaInsp.notes || updatedFacilities[facIdx].notes
+        };
+      }
+    });
+
+    setInspections(updatedInsps);
+    setFacilities(updatedFacilities);
+    localStorage.setItem('pccc_inspections', JSON.stringify(updatedInsps));
+    localStorage.setItem('pccc_facilities', JSON.stringify(updatedFacilities));
+
+    setInspImportStatus({
+      type: 'success',
+      message: `Đã nhập thành công ${validInsps.length} biên bản kiểm tra vào hệ thống!`
+    });
+
+    setTimeout(() => {
+      setIsImportingInspExcel(false);
+      setInspExcelFile(null);
+      setParsedInspections([]);
+      setInspImportStatus({ type: 'idle', message: '' });
+    }, 2000);
   };
 
   const handleExportCategoryExcel = () => {
@@ -601,6 +1434,119 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', 'Bao_Cao_Co_So_PCCC_Theo_Loai_Hinh.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportSectorExcel = () => {
+    // 1. Prepare statistics sheet content
+    const headersStats = [
+      'STT',
+      'Lĩnh vực',
+      'Số lượng cơ sở',
+      'Tỷ lệ (%)'
+    ];
+
+    const escapeCSV = (val: string | undefined | null) => {
+      if (val === undefined || val === null) return '""';
+      let cleanVal = String(val).replace(/"/g, '""').replace(/\r?\n/g, ' ');
+      return `"${cleanVal}"`;
+    };
+
+    const totalCount = facilities.length || 1;
+    
+    // Rows of sector summary statistics
+    const statsRows = SECTOR_OPTIONS.map((sec, idx) => {
+      const num = totalBySector[sec] || 0;
+      const percent = num > 0 ? ((num / totalCount) * 100).toFixed(1) : '0.0';
+      return [
+        (idx + 1).toString(),
+        sec,
+        num.toString(),
+        `${percent}%`
+      ].map(escapeCSV).join(',');
+    });
+
+    const totalRow = [
+      'Tổng cộng',
+      'Tất cả lĩnh vực',
+      facilities.length.toString(),
+      '100.0%'
+    ].map(escapeCSV).join(',');
+
+    // 2. Prepare detailed list grouped by Sector
+    const headersDetail = [
+      'STT',
+      'Lĩnh vực',
+      'Mã cơ sở',
+      'Tên cơ sở',
+      'Địa chỉ',
+      'Xã Phường',
+      'Loại hình cơ sở',
+      'Người đại diện',
+      'Số điện thoại',
+      'Cán bộ quản lý',
+      'Trạng thái',
+      'Cấp quản lý',
+      'Phân loại Phụ lục II',
+      'Ngày kiểm tra gần nhất'
+    ];
+
+    let detailRows: string[] = [];
+    let absoluteIndex = 1;
+
+    SECTOR_OPTIONS.forEach(sec => {
+      const facsOfSec = facilities.filter(f => f.sector === sec || (sec === 'Cơ sở khác' && !f.sector));
+      if (facsOfSec.length > 0) {
+        facsOfSec.forEach(fac => {
+          const assignedOfficer = officers?.find(o => o.id === fac.officerId);
+          const officerStr = assignedOfficer ? `${assignedOfficer.rank} ${assignedOfficer.fullName}` : 'Chưa phân công';
+          
+          detailRows.push(
+            [
+              absoluteIndex.toString(),
+              fac.sector || 'Cơ sở khác',
+              fac.id,
+              fac.name,
+              fac.address,
+              fac.ward,
+              fac.category,
+              fac.representative,
+              fac.phone,
+              officerStr,
+              fac.status,
+              fac.managementLevel,
+              fac.dangerLevel,
+              fac.lastInspectionDate || 'Chưa kiểm tra'
+            ].map(escapeCSV).join(',')
+          );
+          absoluteIndex++;
+        });
+      }
+    });
+
+    const fileTitleStats = ['BÁO CÁO THỐNG KÊ SỐ LƯỢNG CƠ SỞ THEO LĨNH VỰC PCCC', '', '', ''].map(escapeCSV).join(',');
+    const fileTitleDetail = ['DANH SÁCH CHI TIẾT CƠ SỞ PHÂN THEO LĨNH VỰC', '', '', '', '', '', '', '', '', '', '', '', '', ''].map(escapeCSV).join(',');
+
+    const csvContent = '\uFEFF' + [
+      fileTitleStats,
+      headersStats.map(escapeCSV).join(','),
+      ...statsRows,
+      totalRow,
+      '',
+      '',
+      fileTitleDetail,
+      headersDetail.map(escapeCSV).join(','),
+      ...detailRows
+    ].join('\n');
+
+    // Create local blob download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'Bao_Cao_Co_So_PCCC_Theo_Linh_Vuc.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -720,10 +1666,12 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
   const handleExportDossierExcel = () => {
     const headers = [
       'STT',
+      'Mã cơ sở',
       'Tên cơ sở',
       'Số hồ sơ nghiệp vụ',
-      'Ngày lập hồ sơ',
-      'Cán bộ quản lý'
+      'Ngày lập',
+      'Cán bộ quản lý',
+      'Ghi chú'
     ];
 
     const escapeCSV = (val: string | undefined | null) => {
@@ -739,10 +1687,12 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
       
       return [
         (idx + 1).toString(),
+        f.id,
         f.name,
         f.dossierNumber || '',
-        f.createdDate || '',
-        officerStr
+        f.createdDate ? formatDateDMY(f.createdDate) : '',
+        officerStr,
+        f.notes || ''
       ].map(escapeCSV).join(',');
     });
 
@@ -753,6 +1703,394 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', 'Danh_Sach_Co_So_Da_Lap_Ho_So_Nghiep_Vu_PCCC.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportNonDossierExcel = () => {
+    const headers = [
+      'STT',
+      'Mã cơ sở',
+      'Tên cơ sở',
+      'Xã, phường',
+      'Địa chỉ chi tiết',
+      'Điện thoại',
+      'Phân loại theo phụ lục II',
+      'Cán bộ quản lý',
+      'Ghi chú'
+    ];
+
+    const escapeCSV = (val: string | undefined | null) => {
+      if (val === undefined || val === null) return '""';
+      let cleanVal = String(val).replace(/"/g, '""').replace(/\r?\n/g, ' ');
+      return `"${cleanVal}"`;
+    };
+
+    const nonDossierFacilities = facilities.filter(f => !f.dossierNumber);
+    const rows = nonDossierFacilities.map((f, idx) => {
+      const assignedOfficer = officers?.find(o => o.id === f.officerId);
+      const officerStr = assignedOfficer ? `${assignedOfficer.rank} ${assignedOfficer.fullName}` : 'Chưa phân công';
+      
+      return [
+        (idx + 1).toString(),
+        f.id,
+        f.name,
+        f.ward,
+        f.address,
+        f.phone || '',
+        f.dangerLevel || 'Không phân loại',
+        officerStr,
+        f.notes || ''
+      ].map(escapeCSV).join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.map(escapeCSV).join(','), ...rows].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'Danh_Sach_Co_So_Chua_Lap_Ho_So_Nghiep_Vu_PCCC.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportIndustrialZoneExcel = () => {
+    // 1. Prepare statistics sheet content
+    const headersStats = [
+      'STT',
+      'Vị trí địa lý',
+      'Số lượng cơ sở',
+      'Tỷ lệ (%)'
+    ];
+
+    const escapeCSV = (val: string | undefined | null) => {
+      if (val === undefined || val === null) return '""';
+      let cleanVal = String(val).replace(/"/g, '""').replace(/\r?\n/g, ' ');
+      return `"${cleanVal}"`;
+    };
+
+    const totalCount = facilities.length || 1;
+
+    const zones = [
+      { key: 'KCN, KCX', label: 'Trong KCN' },
+      { key: 'CCN', label: 'Trong CCN' },
+      { key: 'Ngoài KCN, KCX, CCN', label: 'Ngoài KCN, CCN' }
+    ];
+
+    const statsRows = zones.map((z, idx) => {
+      const num = facilities.filter(f => {
+        const zoneVal = f.industrialZone || 'Ngoài KCN, KCX, CCN';
+        return zoneVal === z.key;
+      }).length;
+      const percent = num > 0 ? ((num / totalCount) * 100).toFixed(1) : '0.0';
+      return [
+        (idx + 1).toString(),
+        z.label,
+        num.toString(),
+        `${percent}%`
+      ].map(escapeCSV).join(',');
+    });
+
+    const totalRow = [
+      'Tổng cộng',
+      'Tất cả cơ sở',
+      facilities.length.toString(),
+      '100.0%'
+    ].map(escapeCSV).join(',');
+
+    // 2. Prepare detailed list grouped by Industrial Zone
+    const headersDetail = [
+      'STT',
+      'Vị trí địa lý',
+      'Mã cơ sở',
+      'Tên cơ sở',
+      'Địa chỉ',
+      'Xã Phường',
+      'Người đại diện',
+      'Số điện thoại',
+      'Cán bộ quản lý',
+      'Trạng thái',
+      'Cấp quản lý',
+      'Phân loại Phụ lục II',
+      'Ngày kiểm tra gần nhất'
+    ];
+
+    let detailRows: string[] = [];
+    let absoluteIndex = 1;
+
+    zones.forEach(z => {
+      const facsOfZone = facilities.filter(f => {
+        const zoneVal = f.industrialZone || 'Ngoài KCN, KCX, CCN';
+        return zoneVal === z.key;
+      });
+      if (facsOfZone.length > 0) {
+        facsOfZone.forEach(fac => {
+          const assignedOfficer = officers?.find(o => o.id === fac.officerId);
+          const officerStr = assignedOfficer ? `${assignedOfficer.rank} ${assignedOfficer.fullName}` : 'Chưa phân công';
+          
+          detailRows.push(
+            [
+              absoluteIndex.toString(),
+              z.label,
+              fac.id,
+              fac.name,
+              fac.address,
+              fac.ward,
+              fac.representative,
+              fac.phone,
+              officerStr,
+              fac.status,
+              fac.managementLevel,
+              fac.dangerLevel,
+              fac.lastInspectionDate || 'Chưa kiểm tra'
+            ].map(escapeCSV).join(',')
+          );
+          absoluteIndex++;
+        });
+      }
+    });
+
+    const fileTitleStats = ['BÁO CÁO THỐNG KÊ SỐ LƯỢNG CƠ SỞ THEO KHU/CỤM CÔNG NGHIỆP', '', '', ''].map(escapeCSV).join(',');
+    const fileTitleDetail = ['DANH SÁCH CHI TIẾT CƠ SỞ PHÂN THEO KHU/CỤM CÔNG NGHIỆP', '', '', '', '', '', '', '', '', '', '', '', ''].map(escapeCSV).join(',');
+
+    const csvContent = '\uFEFF' + [
+      fileTitleStats,
+      headersStats.map(escapeCSV).join(','),
+      ...statsRows,
+      totalRow,
+      '',
+      '',
+      fileTitleDetail,
+      headersDetail.map(escapeCSV).join(','),
+      ...detailRows
+    ].join('\n');
+
+    // Create local blob download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'Bao_Cao_Co_So_PCCC_Theo_Khu_Cum_Cong_Nghiep.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportOfficerStatsExcel = () => {
+    const headers = [
+      'STT',
+      'Tên cán bộ',
+      'Phụ lục II - Nhóm I',
+      'Phụ lục II - Nhóm II',
+      'Trong KCN',
+      'Trong CCN',
+      'Ngoài KCN, CCN',
+      'Tổng số cơ sở'
+    ];
+
+    const escapeCSV = (val: string | undefined | null) => {
+      if (val === undefined || val === null) return '""';
+      let cleanVal = String(val).replace(/"/g, '""').replace(/\r?\n/g, ' ');
+      return `"${cleanVal}"`;
+    };
+
+    const rows = (officers || []).filter(o => o.position !== 'Chiến sĩ').map((o, idx) => {
+      const assignedFacs = facilities.filter(f => f.officerId === o.id);
+      const countI = assignedFacs.filter(f => f.dangerLevel === 'Nhóm I').length;
+      const countII = assignedFacs.filter(f => f.dangerLevel === 'Nhóm II').length;
+      const countKCN = assignedFacs.filter(f => f.industrialZone === 'KCN, KCX').length;
+      const countCCN = assignedFacs.filter(f => f.industrialZone === 'CCN').length;
+      const countOther = assignedFacs.filter(f => !f.industrialZone || f.industrialZone === 'Ngoài KCN, KCX, CCN').length;
+      const total = assignedFacs.length;
+
+      return [
+        (idx + 1).toString(),
+        `${o.rank} ${o.fullName}`,
+        countI.toString(),
+        countII.toString(),
+        countKCN.toString(),
+        countCCN.toString(),
+        countOther.toString(),
+        total.toString()
+      ].map(escapeCSV).join(',');
+    });
+
+    // Add unassigned row if any
+    const unassignedFacs = facilities.filter(f => !f.officerId || !(officers || []).some(o => o.id === f.officerId));
+    if (unassignedFacs.length > 0) {
+      const unI = unassignedFacs.filter(f => f.dangerLevel === 'Nhóm I').length;
+      const unII = unassignedFacs.filter(f => f.dangerLevel === 'Nhóm II').length;
+      const unKCN = unassignedFacs.filter(f => f.industrialZone === 'KCN, KCX').length;
+      const unCCN = unassignedFacs.filter(f => f.industrialZone === 'CCN').length;
+      const unOther = unassignedFacs.filter(f => !f.industrialZone || f.industrialZone === 'Ngoài KCN, KCX, CCN').length;
+      const unTotal = unassignedFacs.length;
+
+      rows.push([
+        (rows.length + 1).toString(),
+        'Cơ sở chưa phân công cán bộ',
+        unI.toString(),
+        unII.toString(),
+        unKCN.toString(),
+        unCCN.toString(),
+        unOther.toString(),
+        unTotal.toString()
+      ].map(escapeCSV).join(','));
+    }
+
+    // Add total row
+    const totalI = facilities.filter(f => f.dangerLevel === 'Nhóm I').length;
+    const totalII = facilities.filter(f => f.dangerLevel === 'Nhóm II').length;
+    const totalKCN = facilities.filter(f => f.industrialZone === 'KCN, KCX').length;
+    const totalCCN = facilities.filter(f => f.industrialZone === 'CCN').length;
+    const totalOther = facilities.filter(f => !f.industrialZone || f.industrialZone === 'Ngoài KCN, KCX, CCN').length;
+    const totalAll = facilities.length;
+
+    const totalRow = [
+      'Tổng cộng',
+      'Tất cả cơ sở',
+      totalI.toString(),
+      totalII.toString(),
+      totalKCN.toString(),
+      totalCCN.toString(),
+      totalOther.toString(),
+      totalAll.toString()
+    ].map(escapeCSV).join(',');
+
+    const fileTitle = ['THỐNG KÊ PHÂN CÔNG QUẢN LÝ CƠ SỞ THEO CÁN BỘ', '', '', '', '', '', '', ''].map(escapeCSV).join(',');
+
+    const csvContent = '\uFEFF' + [
+      fileTitle,
+      headers.map(escapeCSV).join(','),
+      ...rows,
+      totalRow
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'Thong_Ke_Phan_Cong_Can_Bo_PCCC.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportUninspectedFacilities = () => {
+    const uninspected = facilities.filter(f => {
+      const hasInspectionInPeriod = inspections.some(i => {
+        if (i.facilityId !== f.id) return false;
+        const matchesStartDate = !statsStartDate || i.date >= statsStartDate;
+        const matchesEndDate = !statsEndDate || i.date <= statsEndDate;
+        const iOfficerId = i.officerId || f.officerId;
+        const matchesOfficer = inspOfficerFilter === 'All' || iOfficerId === inspOfficerFilter;
+        return matchesStartDate && matchesEndDate && matchesOfficer;
+      });
+      
+      const matchesOfficerAssignment = inspOfficerFilter === 'All' || f.officerId === inspOfficerFilter;
+      return !hasInspectionInPeriod && matchesOfficerAssignment;
+    });
+
+    const headers = [
+      'STT',
+      'Mã cơ sở',
+      'Tên cơ sở',
+      'Địa chỉ chi tiết',
+      'Xã, phường',
+      'Khu công nghiệp / Cụm công nghiệp',
+      'Người đại diện',
+      'Điện thoại',
+      'Lĩnh vực',
+      'Phân loại cơ sở',
+      'Ngành nghề',
+      'Trạng thái hoạt động',
+      'Năm hoạt động',
+      'Thành phần kinh tế',
+      'Hình thức đầu tư',
+      'Hình thức sở hữu',
+      'Phân loại theo phụ lục II',
+      'Lực lượng tại chỗ',
+      'Số lượng lực lượng tại chỗ (người)',
+      'Thẩm quyền quản lý',
+      'Số hồ sơ nghiệp vụ',
+      'Ngày lập',
+      'Cán bộ quản lý địa bàn',
+      'Ghi chú'
+    ];
+
+    const escapeCSV = (val: string | undefined | null) => {
+      if (val === undefined || val === null) return '""';
+      let cleanVal = String(val).replace(/"/g, '""').replace(/\r?\n/g, ' ');
+      return `"${cleanVal}"`;
+    };
+
+    const rows = uninspected.map((fac, idx) => {
+      const assignedOfficer = officers?.find(o => o.id === fac.officerId);
+      const officerStr = assignedOfficer ? `${assignedOfficer.rank} ${assignedOfficer.fullName}` : 'Chưa phân công';
+      
+      return [
+        (idx + 1).toString(),
+        fac.id,
+        fac.name,
+        fac.address,
+        fac.ward,
+        fac.industrialZone || 'Ngoài KCN, KCX, CCN',
+        fac.representative,
+        fac.phone,
+        fac.sector || '',
+        fac.category,
+        fac.industry || '',
+        fac.status,
+        fac.operationYear || '',
+        fac.economicSector || '',
+        fac.investmentType || '',
+        fac.ownershipType || '',
+        fac.dangerLevel,
+        fac.localForceType || 'Cơ sở',
+        fac.localForceCount !== undefined ? fac.localForceCount.toString() : '0',
+        fac.managementLevel,
+        fac.dossierNumber || '',
+        fac.createdDate || '',
+        officerStr,
+        fac.notes || ''
+      ].map(escapeCSV).join(',');
+    });
+
+    let periodStr = 'Toàn bộ thời gian';
+    if (statsStartDate && statsEndDate) {
+      periodStr = `từ ${formatDateDMY(statsStartDate)} đến ${formatDateDMY(statsEndDate)}`;
+    } else if (statsStartDate) {
+      periodStr = `từ ngày ${formatDateDMY(statsStartDate)}`;
+    } else if (statsEndDate) {
+      periodStr = `đến ngày ${formatDateDMY(statsEndDate)}`;
+    }
+
+    let titleText = `DANH SÁCH CƠ SỞ CHƯA ĐƯỢC KIỂM TRA PCCC GIAI ĐOẠN ${periodStr.toUpperCase()}`;
+    if (inspOfficerFilter !== 'All') {
+      const selectedOfficer = officers?.find(o => o.id === inspOfficerFilter);
+      if (selectedOfficer) {
+        titleText += ` - CÁN BỘ PHỤ TRÁCH: ${selectedOfficer.rank.toUpperCase()} ${selectedOfficer.fullName.toUpperCase()}`;
+      }
+    }
+
+    const fileTitle = [titleText, ...Array(headers.length - 1).fill('')].map(escapeCSV).join(',');
+
+    const csvContent = '\uFEFF' + [
+      fileTitle,
+      headers.map(escapeCSV).join(','),
+      ...rows
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    
+    const fileNameDatePart = (statsStartDate ? `${statsStartDate}_` : '') + (statsEndDate ? `${statsEndDate}` : '');
+    const fileName = `Co_So_Chua_Kiem_Tra_PCCC_${fileNameDatePart || 'Toan_Thoi_Gian'}.csv`;
+    link.setAttribute('download', fileName);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -808,6 +2146,9 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
     setInspFacilityStatus(insp.facilityStatus || 'Hoạt động');
     setInspNotes(insp.notes || '');
     setInspLegalBasis(insp.legalBasis || '');
+    setInspIndustrialZone(insp.industrialZone || 'Ngoài KCN, KCX, CCN');
+    setInspLocalForceType(insp.localForceType || 'Cơ sở');
+    setInspLocalForceCount(insp.localForceCount || 0);
     setIsAddingInspection(false);
   };
 
@@ -835,6 +2176,9 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
     setInspFacilityStatus(fac?.status || 'Hoạt động');
     setInspNotes(fac?.notes || '');
     setInspLegalBasis('');
+    setInspIndustrialZone(fac?.industrialZone || 'Ngoài KCN, KCX, CCN');
+    setInspLocalForceType(fac?.localForceType || 'Cơ sở');
+    setInspLocalForceCount(fac?.localForceCount || 0);
     setIsAddingInspection(true);
   };
 
@@ -850,6 +2194,9 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
       setInspOfficerId(fac.officerId || '');
       setInspFacilityStatus(fac.status || 'Hoạt động');
       setInspNotes(fac.notes || '');
+      setInspIndustrialZone(fac.industrialZone || 'Ngoài KCN, KCX, CCN');
+      setInspLocalForceType(fac.localForceType || 'Cơ sở');
+      setInspLocalForceCount(fac.localForceCount || 0);
     }
   };
 
@@ -895,6 +2242,9 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
       facilityStatus: inspFacilityStatus,
       notes: inspNotes || undefined,
       legalBasis: inspLegalBasis || undefined,
+      industrialZone: inspIndustrialZone || undefined,
+      localForceType: inspLocalForceType || undefined,
+      localForceCount: inspLocalForceCount !== undefined ? Number(inspLocalForceCount) : undefined,
     };
 
     if (isAddingInspection) {
@@ -921,21 +2271,43 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
   // Filters logic
   const filteredFacilities = facilities.filter(f => {
     const query = facSearch.toLowerCase();
+    const officer = officers?.find(o => o.id === f.officerId);
+    const officerName = officer ? `${officer.rank} ${officer.fullName}`.toLowerCase() : '';
+    
     const matchesSearch = f.name.toLowerCase().includes(query) || 
                           f.address.toLowerCase().includes(query) ||
                           f.representative.toLowerCase().includes(query) ||
                           f.id.toLowerCase().includes(query) ||
                           (f.phone && f.phone.toLowerCase().includes(query)) ||
                           (f.industry && f.industry.toLowerCase().includes(query)) ||
-                          (f.dossierNumber && f.dossierNumber.toLowerCase().includes(query));
+                          (f.dossierNumber && f.dossierNumber.toLowerCase().includes(query)) ||
+                          f.ward.toLowerCase().includes(query) ||
+                          f.category.toLowerCase().includes(query) ||
+                          f.managementLevel.toLowerCase().includes(query) ||
+                          f.dangerLevel.toLowerCase().includes(query) ||
+                          f.status.toLowerCase().includes(query) ||
+                          (f.sector && f.sector.toLowerCase().includes(query)) ||
+                          (f.createdDate && f.createdDate.toLowerCase().includes(query)) ||
+                          (f.lastInspectionDate && f.lastInspectionDate.toLowerCase().includes(query)) ||
+                          (f.operationYear && f.operationYear.toLowerCase().includes(query)) ||
+                          (f.economicSector && f.economicSector.toLowerCase().includes(query)) ||
+                          (f.investmentType && f.investmentType.toLowerCase().includes(query)) ||
+                          (f.ownershipType && f.ownershipType.toLowerCase().includes(query)) ||
+                          (f.notes && f.notes.toLowerCase().includes(query)) ||
+                          (f.industrialZone && f.industrialZone.toLowerCase().includes(query)) ||
+                          (f.localForceType && f.localForceType.toLowerCase().includes(query)) ||
+                          (f.localForceCount !== undefined && String(f.localForceCount).includes(query)) ||
+                          officerName.includes(query);
+
     const matchesWard = facWard === 'All' || f.ward === facWard;
     const matchesDanger = facDanger === 'All' || f.dangerLevel === facDanger;
+    const matchesManagementLevel = facManagementLevelFilter === 'All' || f.managementLevel === facManagementLevelFilter;
     const matchesSector = facSectorFilter === 'All' || f.sector === facSectorFilter;
     const matchesCategory = facCategoryFilter === 'All' || f.category === facCategoryFilter;
     const matchesOfficer = facOfficerFilter === 'All' || f.officerId === facOfficerFilter;
     const matchesStatus = facStatusFilter === 'All' || f.status === facStatusFilter;
     const matchesIndustry = facIndustryFilter === 'All' || f.industry === facIndustryFilter;
-    return matchesSearch && matchesWard && matchesDanger && matchesSector && matchesCategory && matchesOfficer && matchesStatus && matchesIndustry;
+    return matchesSearch && matchesWard && matchesDanger && matchesManagementLevel && matchesSector && matchesCategory && matchesOfficer && matchesStatus && matchesIndustry;
   });
 
   const filteredInspections = inspections.filter(i => {
@@ -980,8 +2352,20 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
     return acc;
   }, {} as Record<string, number>);
 
+  const totalByIndustrialZone = facilities.reduce((acc, f) => {
+    const zone = f.industrialZone || 'Ngoài KCN, KCX, CCN';
+    acc[zone] = (acc[zone] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const totalBySector = facilities.reduce((acc, f) => {
+    const sector = f.sector || 'Cơ sở khác';
+    acc[sector] = (acc[sector] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
   // Thống kê số lượng cơ sở theo cán bộ quản lý
-  const officerStats = (officers || []).map(o => {
+  const officerStats = (officers || []).filter(o => o.position !== 'Chiến sĩ').map(o => {
     const assignedFacs = facilities.filter(f => f.officerId === o.id);
     const countI = assignedFacs.filter(f => f.dangerLevel === 'Nhóm I').length;
     const countII = assignedFacs.filter(f => f.dangerLevel === 'Nhóm II').length;
@@ -1096,17 +2480,27 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
       {subTab === 'facilities' && (
         <div className="space-y-4 font-sans" id="protection-facilities-panel">
           {/* Search and filters bar for facilities list */}
-          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 no-print">
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-3 no-print">
+            <div className="relative flex items-center xl:col-span-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3" />
               <input
                 id="facility-search-input"
                 type="text"
-                placeholder="Tìm cơ sở, người đại diện, địa chỉ, mã cơ sở..."
+                placeholder="Tìm tất cả nội dung phiếu khai báo cơ sở (tên, ĐD, SĐT, cán bộ, KCN, CCN, ghi chú...)"
                 value={facSearch}
                 onChange={(e) => setFacSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-xs"
+                className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-xs"
               />
+              {facSearch && (
+                <button
+                  type="button"
+                  onClick={() => setFacSearch('')}
+                  className="absolute right-2.5 w-4 h-4 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all flex items-center justify-center cursor-pointer shadow-2xs"
+                  title="Xóa tất cả ký tự"
+                >
+                  <X className="w-2.5 h-2.5 stroke-[3]" />
+                </button>
+              )}
             </div>
             <div>
               <select
@@ -1167,9 +2561,21 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                 onChange={(e) => setFacDanger(e.target.value)}
                 className="w-full p-2 border border-slate-200 rounded-lg text-xs cursor-pointer bg-white"
               >
-                <option value="All">--- Phân loại theo Phụ lục II ---</option>
+                <option value="All">--- Phụ lục II ---</option>
                 <option value="Nhóm I">Nhóm I</option>
                 <option value="Nhóm II">Nhóm II</option>
+              </select>
+            </div>
+            <div>
+              <select
+                id="facility-management-level-filter"
+                value={facManagementLevelFilter}
+                onChange={(e) => setFacManagementLevelFilter(e.target.value)}
+                className="w-full p-2 border border-slate-200 rounded-lg text-xs cursor-pointer bg-white"
+              >
+                <option value="All">--- Cấp quản lý ---</option>
+                <option value="Cấp tỉnh quản lý">Cấp tỉnh quản lý</option>
+                <option value="Cấp xã quản lý">Cấp xã quản lý</option>
               </select>
             </div>
             <div>
@@ -1180,7 +2586,7 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                 className="w-full p-2 border border-slate-200 rounded-lg text-xs cursor-pointer bg-white"
               >
                 <option value="All">--- Cán bộ quản lý ---</option>
-                {officers?.map(o => (
+                {officers?.filter(o => o.position !== 'Chiến sĩ').map(o => (
                   <option key={o.id} value={o.id}>
                     {o.rank} {o.fullName} ({o.unit})
                   </option>
@@ -1292,6 +2698,20 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                     <Download className="w-3.5 h-3.5" />
                     Xuất file Excel
                   </button>
+                  <button
+                    id="import-excel-btn"
+                    onClick={() => {
+                      setIsImportingExcel(true);
+                      setExcelFile(null);
+                      setParsedFacilities([]);
+                      setImportStatus({ type: 'idle', message: '' });
+                    }}
+                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
+                    title="Nhập danh sách cơ sở từ file Excel (.xlsx, .xls)"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    Thêm từ Excel
+                  </button>
                 </div>
               </div>
 
@@ -1343,13 +2763,13 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                             )}
                           </button>
 
-                          <div className="flex-1 pr-16">
+                          <div className="flex-1 pr-[110px]">
                             <h4 className="font-extrabold text-slate-800 text-sm leading-snug">{fac.name}</h4>
                           </div>
                         </div>
 
                         <div className="space-y-1 text-slate-500 text-[11px]">
-                          <div className="flex flex-wrap items-center gap-1.5 pb-1">
+                          <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
                             {fac.industry && (
                               <span className="px-2 py-0.5 text-[9.5px] font-semibold text-slate-600 rounded whitespace-nowrap bg-slate-50 border border-slate-150" title="Ngành nghề">
                                 Ngành: {fac.industry}
@@ -1368,10 +2788,43 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                             )}
                           </div>
 
+                          {(fac.dangerLevel || fac.sector || fac.industrialZone) && (
+                            <div className="flex flex-wrap items-center gap-1.5 pb-1">
+                              {fac.dangerLevel && (
+                                <span className={`flex items-center gap-1 px-2 py-0.5 rounded font-mono border text-[9px] ${
+                                  fac.dangerLevel === 'Nhóm I'
+                                    ? 'bg-rose-50 text-rose-700 border-rose-100'
+                                    : 'bg-sky-50 text-sky-700 border-sky-100'
+                                }`} title="Phân loại nhóm (Phụ lục II)">
+                                  <span className="text-[8.5px] opacity-75 font-bold">NHÓM:</span>
+                                  <span className="font-semibold">{fac.dangerLevel}</span>
+                                </span>
+                              )}
+                              {fac.sector && (
+                                <span className="flex items-center gap-1 bg-amber-50 text-amber-800 px-2 py-0.5 rounded border border-amber-100 text-[9px]" title="Lĩnh vực quản lý">
+                                  <span className="text-[8.5px] text-amber-500 font-bold">LĨNH VỰC:</span>
+                                  <span className="font-semibold line-clamp-1 max-w-[220px]">{fac.sector}</span>
+                                </span>
+                              )}
+                              {fac.industrialZone && fac.id !== '8025000981330' && (
+                                <span className="flex items-center gap-1 bg-indigo-50 text-indigo-800 px-2 py-0.5 rounded border border-indigo-100 text-[9px]" title="Khu công nghiệp / Cụm công nghiệp">
+                                  <span className="text-[8.5px] text-indigo-500 font-bold">VÙNG:</span>
+                                  <span className="font-semibold">{fac.industrialZone}</span>
+                                </span>
+                              )}
+                              {(fac.localForceType || fac.localForceCount !== undefined) && fac.id !== '8025000981330' && (
+                                <span className="flex items-center gap-1 bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-100 text-[9px]" title="Lực lượng tại chỗ">
+                                  <span className="text-[8.5px] text-emerald-500 font-bold">LLTC:</span>
+                                  <span className="font-semibold">{fac.localForceType || 'Cơ sở'} {fac.localForceCount !== undefined ? `(${fac.localForceCount} người)` : ''}</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
+
                           <div className="flex items-center gap-1.5">
                             <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             <span className="line-clamp-1">
-                              {fac.address}, {fac.ward && (fac.ward.startsWith('Phường') || fac.ward.startsWith('Xã') ? fac.ward : `Phường ${fac.ward}`)}
+                              {fac.address} - {fac.ward && (fac.ward.startsWith('Phường') || fac.ward.startsWith('Xã') ? fac.ward : `Phường ${fac.ward}`)}
                             </span>
                           </div>
                           <div className="flex items-center gap-1.5">
@@ -1394,30 +2847,6 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                               <div className="flex items-center gap-1 bg-slate-50 text-slate-700 px-2 py-0.5 rounded font-mono border border-slate-100" title="Ngày lập hồ sơ">
                                 <span className="text-[9px] text-slate-400 font-bold">LẬP:</span>
                                 <span className="font-semibold text-slate-700">{fac.createdDate}</span>
-                              </div>
-                            )}
-                            {fac.operationYear && (
-                              <div className="flex items-center gap-1 bg-slate-50 text-slate-700 px-2 py-0.5 rounded font-mono border border-slate-100" title="Năm đưa vào hoạt động">
-                                <span className="text-[9px] text-slate-400 font-bold">HĐ:</span>
-                                <span className="font-semibold text-slate-700">{fac.operationYear}</span>
-                              </div>
-                            )}
-                            {fac.economicSector && (
-                              <div className="flex items-center gap-1 bg-teal-50 text-teal-800 px-2 py-0.5 rounded font-mono border border-teal-100" title="Thành phần kinh tế">
-                                <span className="text-[9px] text-teal-400 font-bold">KT:</span>
-                                <span className="font-semibold text-teal-700">{fac.economicSector}</span>
-                              </div>
-                            )}
-                            {fac.investmentType && (
-                              <div className="flex items-center gap-1 bg-indigo-50 text-indigo-800 px-2 py-0.5 rounded font-mono border border-indigo-100" title="Hình thức đầu tư">
-                                <span className="text-[9px] text-indigo-400 font-bold">ĐT:</span>
-                                <span className="font-semibold text-indigo-750">{fac.investmentType}</span>
-                              </div>
-                            )}
-                            {fac.ownershipType && (
-                              <div className="flex items-center gap-1 bg-purple-50 text-purple-800 px-2 py-0.5 rounded font-mono border border-purple-100" title="Hình thức sở hữu">
-                                <span className="text-[9px] text-purple-400 font-bold">SH:</span>
-                                <span className="font-semibold text-purple-750">{fac.ownershipType}</span>
                               </div>
                             )}
                           </div>
@@ -1548,6 +2977,20 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                           <option key={opt} value={opt} />
                         ))}
                       </datalist>
+                    </div>
+
+                    <div>
+                      <label className="block mb-1">Khu công nghiệp / Cụm công nghiệp</label>
+                      <select
+                        id="fac-form-industrial-zone"
+                        value={facIndustrialZone || 'Ngoài KCN, KCX, CCN'}
+                        onChange={(e) => setFacIndustrialZone(e.target.value as any)}
+                        className="w-full p-2 border border-slate-205 rounded border-slate-200"
+                      >
+                        <option value="KCN, KCX">KCN, KCX</option>
+                        <option value="CCN">CCN</option>
+                        <option value="Ngoài KCN, KCX, CCN">Ngoài KCN, KCX, CCN</option>
+                      </select>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -1732,6 +3175,34 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                       </div>
                     </div>
 
+                    <div className="grid grid-cols-2 gap-3" id="fac-form-local-force-row">
+                      <div>
+                        <label className="block mb-1">Lực lượng tại chỗ</label>
+                        <select
+                          id="fac-form-local-force-type"
+                          value={facLocalForceType || 'Cơ sở'}
+                          onChange={(e) => setFacLocalForceType(e.target.value as any)}
+                          className="w-full p-2 border border-slate-205 rounded border-slate-200 bg-white"
+                        >
+                          <option value="Cơ sở">Cơ sở</option>
+                          <option value="Chuyên ngành">Chuyên ngành</option>
+                          <option value="Phân công">Phân công</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block mb-1">Số lượng (người)</label>
+                        <input
+                          id="fac-form-local-force-count"
+                          type="number"
+                          min="0"
+                          value={facLocalForceCount}
+                          onChange={(e) => setFacLocalForceCount(Math.max(0, parseInt(e.target.value) || 0))}
+                          className="w-full p-2 border border-slate-205 rounded border-slate-200"
+                          placeholder="Số lượng thành viên"
+                        />
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-3" id="fac-form-additional-metadata-row">
                       <div>
                         <label id="fac-form-dossier-label" className="block mb-1">Số hồ sơ nghiệp vụ</label>
@@ -1766,7 +3237,7 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                         className="w-full p-2 border border-slate-205 rounded border-slate-200 text-[11px]"
                       >
                         <option value="">- Chọn cán bộ phụ trách * -</option>
-                        {officers?.map(o => (
+                        {officers?.filter(o => o.position !== 'Chiến sĩ').map(o => (
                           <option key={o.id} value={o.id}>
                             {o.rank} {o.fullName} ({o.unit})
                           </option>
@@ -1873,7 +3344,7 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                   className="w-full p-2 border border-slate-200 rounded text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100/50 transition-all cursor-pointer"
                 >
                   <option value="All">--- Tất cả cán bộ ---</option>
-                  {officers?.map(o => (
+                  {officers?.filter(o => o.position !== 'Chiến sĩ').map(o => (
                     <option key={o.id} value={o.id}>
                       {o.rank} {o.fullName} ({o.unit})
                     </option>
@@ -2046,83 +3517,147 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                     </div>
                   </div>
 
-                  {rangeTotalCount > 0 && (
-                    <div className="flex justify-between items-center bg-slate-50/50 px-3 py-2 rounded-lg border border-slate-100 text-[11px] font-bold text-slate-600 no-print">
-                      <span className="text-slate-500">Tìm thấy <span className="text-slate-800 font-extrabold font-mono">{rangeTotalCount}</span> biên bản phù hợp giai đoạn.</span>
-                      <button
-                        id="export-range-insp-btn"
-                        type="button"
-                        onClick={() => {
-                          const headers = [
-                            'STT',
-                            'Mã số cơ sở',
-                            'Tên cơ sở',
-                            'Địa chỉ',
-                            'Tình trạng hoạt động',
-                            'Phân loại nhóm',
-                            'Phân loại cơ sở',
-                            'Ngành nghề',
-                            'Cán bộ quản lý địa bàn',
-                            'Ngày kiểm tra',
-                            'Hình thức kiểm tra',
-                            'Kế hoạch kiểm tra',
-                            'Kết quả kiểm tra',
-                            'Vi phạm',
-                            'Căn cứ vi phạm',
-                            'Số tiền xử phạt',
-                            'Thời hạn khắc phục',
-                            'Trạng thái khắc phục',
-                            'Ghi chú'
-                          ];
-                          const rows = rangeInspections.map((insp, idx) => {
-                            const facility = facilities.find(f => f.id === insp.facilityId);
-                            const oId = insp.officerId || facility?.officerId;
-                            const off = officers?.find(o => o.id === oId);
-                            const officerText = off ? `${off.rank} ${off.fullName} (${off.unit || ''})` : 'Chưa phân công';
-                            const fineText = insp.fineAmount ? `${insp.fineAmount.toLocaleString('vi-VN')} VNĐ` : '0';
-                            
-                            return [
-                              (idx + 1).toString(),
-                              insp.facilityId || facility?.id || '',
-                              facility ? facility.name : 'Không rõ',
-                              insp.address || facility?.address || '',
-                              insp.facilityStatus || facility?.status || 'Đang hoạt động',
-                              insp.appendixIiCategory || facility?.dangerLevel || 'Không phân loại',
-                              insp.facilityCategory || facility?.category || 'Không phân loại',
-                              insp.industry || facility?.industry || 'Không có',
-                              officerText,
-                              insp.date,
-                              insp.type,
-                              insp.inspectionPlan || 'Không theo kế hoạch',
-                              insp.result,
-                              insp.violations || 'Không có',
-                              insp.legalBasis || 'Không có',
-                              fineText,
-                              insp.remedyDeadline || 'Không có',
-                              insp.remedyStatus || 'Không có vi phạm',
-                              insp.notes || ''
-                            ];
-                          });
-                          const csvContent = '\uFEFF' + [headers, ...rows].map(r => r.map(v => {
-                            const clean = String(v || '').replace(/"/g, '""').replace(/\r?\n/g, ' ');
-                            return `"${clean}"`;
-                          }).join(',')).join('\n');
-                          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                          const url = URL.createObjectURL(blob);
-                          const link = document.createElement('a');
-                          link.href = url;
-                          link.setAttribute('download', `Thong_Ke_Kiem_Tra_PCCC_Giai_Doan.csv`);
-                          document.body.appendChild(link);
-                          link.click();
-                          document.body.removeChild(link);
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-all shadow-xs cursor-pointer text-[10.5px]"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        Xuất báo cáo giai đoạn
-                      </button>
-                    </div>
-                  )}
+                  {(rangeTotalCount > 0 || statsStartDate || statsEndDate) && (() => {
+                    const uninspectedCount = facilities.filter(f => {
+                      const hasInspectionInPeriod = inspections.some(i => {
+                        if (i.facilityId !== f.id) return false;
+                        const matchesStartDate = !statsStartDate || i.date >= statsStartDate;
+                        const matchesEndDate = !statsEndDate || i.date <= statsEndDate;
+                        const iOfficerId = i.officerId || f.officerId;
+                        const matchesOfficer = inspOfficerFilter === 'All' || iOfficerId === inspOfficerFilter;
+                        return matchesStartDate && matchesEndDate && matchesOfficer;
+                      });
+                      const matchesOfficerAssignment = inspOfficerFilter === 'All' || f.officerId === inspOfficerFilter;
+                      return !hasInspectionInPeriod && matchesOfficerAssignment;
+                    }).length;
+
+                    return (
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-50/50 px-3.5 py-2.5 rounded-lg border border-slate-100 text-[11px] font-bold text-slate-600 no-print gap-2">
+                        <span className="text-slate-500">
+                          {rangeTotalCount > 0 ? (
+                            <>Tìm thấy <span className="text-slate-800 font-extrabold font-mono">{rangeTotalCount}</span> biên bản phù hợp giai đoạn.</>
+                          ) : (
+                            <>Không tìm thấy biên bản kiểm tra nào phù hợp giai đoạn.</>
+                          )}
+                          {uninspectedCount > 0 && (
+                            <span className="ml-1.5 text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-100/50">
+                              Có <span className="font-extrabold font-mono">{uninspectedCount}</span> cơ sở chưa kiểm tra
+                            </span>
+                          )}
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            id="export-uninspected-facilities-btn"
+                            type="button"
+                            onClick={handleExportUninspectedFacilities}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-all shadow-xs cursor-pointer text-[10.5px]"
+                            title="Xuất danh sách cơ sở chưa được kiểm tra trong giai đoạn này"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Xuất cơ sở chưa kiểm tra ({uninspectedCount})
+                          </button>
+                          {rangeTotalCount > 0 && (
+                            <button
+                              id="export-range-insp-btn"
+                              type="button"
+                              onClick={() => {
+                                const headers = [
+                                  'STT',
+                                  'Hình thức kiểm tra',
+                                  'Cán bộ thực hiện',
+                                  'Mã cơ sở trên TTCH',
+                                  'Tên cơ sở',
+                                  'Địa chỉ',
+                                  'Xã, phường',
+                                  'Trong KCN, ngoài KCN',
+                                  'Phân loại nhóm',
+                                  'Phân loại cơ sở',
+                                  'Ngành nghề',
+                                  'Lực lượng tại chỗ',
+                                  'Số lượng lực lượng tại chỗ (người)',
+                                  'Tình trạng hoạt động',
+                                  'Ngày kiểm tra',
+                                  'Kế hoạch kiểm tra',
+                                  'Kết quả kiểm tra',
+                                  'Nội dung vi phạm',
+                                  'Căn cứ vi phạm',
+                                  'Số tiền xử phạt (triệu đồng)',
+                                  'Thời hạn khắc phục',
+                                  'Trạng thái khắc phục',
+                                  'Ghi chú'
+                                ];
+                                const rows = rangeInspections.map((insp, idx) => {
+                                  const facility = facilities.find(f => f.id === insp.facilityId);
+                                  const oId = insp.officerId || facility?.officerId;
+                                  const off = officers?.find(o => o.id === oId);
+                                  const officerText = off ? `${off.rank} ${off.fullName}` : 'Chưa phân công';
+                                  
+                                  const fullAddress = insp.address || facility?.address || '';
+                                  const nameText = facility ? facility.name : 'Không rõ';
+                                  const isInKcnText = insp.industrialZone || facility?.industrialZone || (
+                                    (
+                                      fullAddress.toLowerCase().includes('kcn') ||
+                                      fullAddress.toLowerCase().includes('khu công nghiệp') ||
+                                      fullAddress.toLowerCase().includes('phước đông') ||
+                                      fullAddress.toLowerCase().includes('trảng bàng') ||
+                                      fullAddress.toLowerCase().includes('thành thành công') ||
+                                      fullAddress.toLowerCase().includes('chà là') ||
+                                      nameText.toLowerCase().includes('kcn') ||
+                                      nameText.toLowerCase().includes('khu công nghiệp')
+                                    ) ? 'KCN, KCX' : 'Ngoài KCN, KCX, CCN'
+                                  );
+
+                                  const fineInMillions = insp.fineAmount ? (insp.fineAmount / 1000000).toString() : '0';
+                                  
+                                  return [
+                                    (idx + 1).toString(),
+                                    insp.type,
+                                    officerText,
+                                    insp.facilityId || facility?.id || '',
+                                    nameText,
+                                    fullAddress,
+                                    facility?.ward || '',
+                                    isInKcnText,
+                                    insp.appendixIiCategory || facility?.dangerLevel || 'Không phân loại',
+                                    insp.facilityCategory || facility?.category || 'Không phân loại',
+                                    insp.industry || facility?.industry || 'Không có',
+                                    insp.localForceType || facility?.localForceType || 'Cơ sở',
+                                    (insp.localForceCount !== undefined ? insp.localForceCount : facility?.localForceCount !== undefined ? facility?.localForceCount : 0).toString(),
+                                    insp.facilityStatus || facility?.status || 'Đang hoạt động',
+                                    insp.date,
+                                    insp.inspectionPlan || 'Không theo kế hoạch',
+                                    insp.result,
+                                    insp.violations || 'Không có',
+                                    insp.legalBasis || 'Không có',
+                                    fineInMillions,
+                                    insp.remedyDeadline || 'Không có',
+                                    insp.remedyStatus || 'Không có vi phạm',
+                                    insp.notes || ''
+                                  ];
+                                });
+                                const csvContent = '\uFEFF' + [headers, ...rows].map(r => r.map(v => {
+                                  const clean = String(v || '').replace(/"/g, '""').replace(/\r?\n/g, ' ');
+                                  return `"${clean}"`;
+                                }).join(',')).join('\n');
+                                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                                const url = URL.createObjectURL(blob);
+                                const link = document.createElement('a');
+                                link.href = url;
+                                link.setAttribute('download', `Thong_Ke_Kiem_Tra_PCCC_Giai_Doan.csv`);
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-all shadow-xs cursor-pointer text-[10.5px]"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              Xuất báo cáo giai đoạn
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -2130,25 +3665,35 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
 
           {/* Controls bar */}
           <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm grid grid-cols-1 md:grid-cols-12 gap-3 no-print">
-            <div className="relative md:col-span-5">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+            <div className="relative md:col-span-4 flex items-center">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3" />
               <input
                 id="inspection-search-input"
                 type="text"
                 placeholder="Tìm cơ sở, người đại diện, địa chỉ, mã cơ sở, nội dung..."
                 value={inspSearch}
                 onChange={(e) => setInspSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-xs"
+                className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-xs"
               />
+              {inspSearch && (
+                <button
+                  type="button"
+                  onClick={() => setInspSearch('')}
+                  className="absolute right-2.5 w-4 h-4 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all flex items-center justify-center cursor-pointer shadow-2xs"
+                  title="Xóa tất cả ký tự"
+                >
+                  <X className="w-2.5 h-2.5 stroke-[3]" />
+                </button>
+              )}
             </div>
-            <div className="md:col-span-3">
+            <div className="md:col-span-2">
               <select
                 id="inspection-type-filter"
                 value={inspTypeFilter}
                 onChange={(e) => setInspTypeFilter(e.target.value)}
                 className="w-full p-2 border border-slate-200 rounded-lg text-xs bg-white cursor-pointer"
               >
-                <option value="All">--- Hình thức kiểm tra ---</option>
+                <option value="All">--- Hình thức ---</option>
                 <option value="Định kỳ">Định kỳ</option>
                 <option value="Đột xuất">Đột xuất</option>
               </select>
@@ -2169,9 +3714,27 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
               <button
                 id="add-inspection-btn"
                 onClick={() => handleOpenAddInspection()}
-                className="w-full h-full py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs whitespace-nowrap cursor-pointer transition-colors flex items-center justify-center"
+                className="w-full h-full py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs whitespace-nowrap cursor-pointer transition-colors flex items-center justify-center gap-1"
+                title="Lập phiếu biên bản kiểm tra PCCC mới"
               >
-                + Thêm mới
+                <Plus className="w-3.5 h-3.5" />
+                + Lập BB mới
+              </button>
+            </div>
+            <div className="md:col-span-2">
+              <button
+                id="import-inspection-excel-btn"
+                onClick={() => {
+                  setIsImportingInspExcel(true);
+                  setInspExcelFile(null);
+                  setParsedInspections([]);
+                  setInspImportStatus({ type: 'idle', message: '' });
+                }}
+                className="w-full h-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs whitespace-nowrap cursor-pointer transition-colors flex items-center justify-center gap-1 shadow-xs"
+                title="Nhập dữ liệu biên bản hàng loạt từ file Excel"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                Nhập Excel
               </button>
             </div>
           </div>
@@ -2450,6 +4013,20 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                         </div>
 
                         <div>
+                          <label className="block mb-1 text-slate-700 font-extrabold uppercase tracking-wider text-[10px]">Khu công nghiệp / Cụm công nghiệp</label>
+                          <select
+                            id="insp-form-industrial-zone"
+                            value={inspIndustrialZone || 'Ngoài KCN, KCX, CCN'}
+                            onChange={(e) => setInspIndustrialZone(e.target.value as any)}
+                            className="w-full p-2 border border-slate-200 rounded border-slate-200 font-medium text-slate-700 text-xs bg-white"
+                          >
+                            <option value="KCN, KCX">KCN, KCX</option>
+                            <option value="CCN">CCN</option>
+                            <option value="Ngoài KCN, KCX, CCN">Ngoài KCN, KCX, CCN</option>
+                          </select>
+                        </div>
+
+                        <div>
                           <label className="block mb-1 text-slate-700 font-extrabold uppercase tracking-wider text-[10px]">Phân loại nhóm theo Phụ lục II</label>
                           <select
                             id="insp-form-appendixii"
@@ -2518,6 +4095,34 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                           />
                         </div>
 
+                        <div className="grid grid-cols-2 gap-3" id="insp-form-local-force-row">
+                          <div>
+                            <label className="block mb-1 text-slate-700 font-extrabold uppercase tracking-wider text-[10px]">Lực lượng tại chỗ</label>
+                            <select
+                              id="insp-form-local-force-type"
+                              value={inspLocalForceType || 'Cơ sở'}
+                              onChange={(e) => setInspLocalForceType(e.target.value as any)}
+                              className="w-full p-2 border border-slate-200 rounded font-medium text-slate-700 text-xs bg-white"
+                            >
+                              <option value="Cơ sở">Cơ sở</option>
+                              <option value="Chuyên ngành">Chuyên ngành</option>
+                              <option value="Phân công">Phân công</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block mb-1 text-slate-700 font-extrabold uppercase tracking-wider text-[10px]">Số lượng (người)</label>
+                            <input
+                              id="insp-form-local-force-count"
+                              type="number"
+                              min="0"
+                              value={inspLocalForceCount}
+                              onChange={(e) => setInspLocalForceCount(Math.max(0, parseInt(e.target.value) || 0))}
+                              className="w-full p-2 border border-slate-200 rounded font-medium text-slate-700 text-xs"
+                              placeholder="Số lượng thành viên"
+                            />
+                          </div>
+                        </div>
+
 
 
                         <div>
@@ -2529,7 +4134,7 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                             className="w-full p-2 border border-slate-200 rounded border-slate-200 font-medium text-slate-700 text-xs bg-white"
                           >
                             <option value="">-- Click chọn cán bộ quản lý địa bàn --</option>
-                            {officers?.map(o => (
+                            {officers?.filter(o => o.position !== 'Chiến sĩ').map(o => (
                               <option key={o.id} value={o.id}>{o.fullName} ({o.rank} - {o.position})</option>
                             ))}
                           </select>
@@ -2806,7 +4411,7 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
             </p>
           </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6" id="analytics-statistics-grid">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" id="analytics-statistics-grid">
               {/* Table layout by Ward */}
               <div className="space-y-3" id="ward-analytics-table">
                 <div className="flex justify-between items-center border-b pb-2">
@@ -2821,7 +4426,7 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                     Xuất Excel
                   </button>
                 </div>
-                <div className="divide-y text-xs">
+                <div className="divide-y text-xs max-h-[350px] overflow-y-auto pr-1">
                   {WARD_OPTIONS.map(ward => {
                     const num = totalByWard[ward] || 0;
                     const totalCount = facilities.length || 1;
@@ -2903,29 +4508,37 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                 </div>
               </div>
 
-              {/* Table layout by Phụ lục II */}
-              <div className="space-y-3" id="danger-analytics-table">
-                <span className="font-extrabold text-xs text-slate-500 block uppercase tracking-wider border-b pb-2">Thống kê theo Phụ lục II</span>
-                <div className="divide-y text-xs">
-                  {['Nhóm I', 'Nhóm II'].map(danger => {
-                    const num = totalByDanger[danger] || 0;
+              {/* Table layout by Sector */}
+              <div className="space-y-3" id="sector-analytics-table">
+                <div className="flex justify-between items-center border-b pb-2">
+                  <span className="font-extrabold text-xs text-slate-500 uppercase tracking-wider">Thống kê theo Lĩnh vực</span>
+                  <button
+                    id="export-excel-sector-btn"
+                    onClick={handleExportSectorExcel}
+                    className="flex items-center gap-1.5 px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-[10.5px] font-bold transition-all cursor-pointer shadow-xs"
+                    title="Xuất thống kê lĩnh vực và danh sách chi tiết ra file Excel (Excel/CSV)"
+                  >
+                    <Download className="w-3 h-3" />
+                    Xuất Excel
+                  </button>
+                </div>
+                <div className="divide-y text-xs max-h-[350px] overflow-y-auto pr-1">
+                  {SECTOR_OPTIONS.map(sec => {
+                    const num = totalBySector[sec] || 0;
                     const totalCount = facilities.length || 1;
                     const percent = num > 0 ? ((num / totalCount) * 100).toFixed(1) : 0;
                     return (
                       <div 
-                        key={danger} 
+                        key={sec} 
                         onClick={() => {
-                          setFacDanger(danger);
+                          setFacSectorFilter(sec);
                           setSubTab('facilities');
                         }}
                         className="py-2.5 flex justify-between items-center cursor-pointer hover:bg-slate-50 px-2 rounded-lg transition-colors"
-                        title="Bấm để lọc danh sách theo Nhóm nguy hiểm này"
+                        title="Bấm để lọc danh sách theo Lĩnh vực này"
                       >
-                        <span className="font-semibold text-slate-600 flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${danger === 'Nhóm I' ? 'bg-red-500' : 'bg-blue-500'}`} />
-                          {danger}
-                        </span>
-                        <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-600 truncate max-w-[150px]" title={sec}>{sec}</span>
+                        <div className="flex items-center gap-2 shrink-0">
                           <span className="text-slate-400">({percent}%)</span>
                           <strong className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-800 hover:bg-slate-200 transition-colors">{num} cơ sở</strong>
                         </div>
@@ -2933,12 +4546,115 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                     );
                   })}
                 </div>
-                {/* Total row for Danger */}
+                {/* Total row for Sector */}
                 <div className="py-2 flex justify-between items-center px-2 bg-slate-50/70 border-t border-slate-200 mt-1 rounded text-xs">
-                  <span className="font-bold text-slate-850">Tổng cộng theo phụ lục</span>
+                  <span className="font-bold text-slate-850">Tổng cộng theo lĩnh vực</span>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-slate-400 text-[10px] font-bold">(100%)</span>
                     <strong className="font-mono bg-red-100 text-red-700 px-2 py-0.5 rounded text-[11px]">{facilities.length} cơ sở</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Table layout by Phụ lục II & Industrial Zone */}
+              <div className="space-y-6">
+                <div className="space-y-3" id="danger-analytics-table">
+                  <span className="font-extrabold text-xs text-slate-500 block uppercase tracking-wider border-b pb-2">Thống kê theo Phụ lục II</span>
+                  <div className="divide-y text-xs">
+                    {['Nhóm I', 'Nhóm II'].map(danger => {
+                      const num = totalByDanger[danger] || 0;
+                      const totalCount = facilities.length || 1;
+                      const percent = num > 0 ? ((num / totalCount) * 100).toFixed(1) : 0;
+                      return (
+                        <div 
+                          key={danger} 
+                          onClick={() => {
+                            setFacDanger(danger);
+                            setSubTab('facilities');
+                          }}
+                          className="py-2.5 flex justify-between items-center cursor-pointer hover:bg-slate-50 px-2 rounded-lg transition-colors"
+                          title="Bấm để lọc danh sách theo Nhóm nguy hiểm này"
+                        >
+                          <span className="font-semibold text-slate-600 flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${danger === 'Nhóm I' ? 'bg-red-500' : 'bg-blue-500'}`} />
+                            {danger}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400">({percent}%)</span>
+                            <strong className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-800 hover:bg-slate-200 transition-colors">{num} cơ sở</strong>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Total row for Danger */}
+                  <div className="py-2 flex justify-between items-center px-2 bg-slate-50/70 border-t border-slate-200 mt-1 rounded text-xs">
+                    <span className="font-bold text-slate-850">Tổng cộng theo phụ lục</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-slate-400 text-[10px] font-bold">(100%)</span>
+                      <strong className="font-mono bg-red-100 text-red-700 px-2 py-0.5 rounded text-[11px]">{facilities.length} cơ sở</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Table layout by Industrial Zone */}
+                <div className="space-y-3 border-t border-slate-100 pt-4" id="industrial-zone-analytics-table">
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <span className="font-extrabold text-xs text-slate-500 uppercase tracking-wider">Thống kê Khu/Cụm công nghiệp</span>
+                    <button
+                      id="export-excel-industrial-zone-btn"
+                      onClick={handleExportIndustrialZoneExcel}
+                      className="flex items-center gap-1.5 px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-[10.5px] font-bold transition-all cursor-pointer shadow-xs"
+                      title="Xuất thống kê khu/cụm công nghiệp và danh sách chi tiết ra file Excel (Excel/CSV)"
+                    >
+                      <Download className="w-3 h-3" />
+                      Xuất Excel
+                    </button>
+                  </div>
+                  <div className="divide-y text-xs">
+                    {[
+                      { key: 'KCN, KCX', label: 'Trong KCN', color: 'bg-emerald-500' },
+                      { key: 'CCN', label: 'Trong CCN', color: 'bg-amber-500' },
+                      { key: 'Ngoài KCN, KCX, CCN', label: 'Ngoài KCN, CCN', color: 'bg-slate-500' }
+                    ].map(zone => {
+                      const num = totalByIndustrialZone[zone.key] || 0;
+                      const totalCount = facilities.length || 1;
+                      const percent = num > 0 ? ((num / totalCount) * 100).toFixed(1) : 0;
+                      return (
+                        <div 
+                          key={zone.key} 
+                          onClick={() => {
+                            if (zone.key === 'KCN, KCX') {
+                              setFacSearch('KCN');
+                            } else if (zone.key === 'CCN') {
+                              setFacSearch('CCN');
+                            } else {
+                              setFacSearch('Ngoài KCN');
+                            }
+                            setSubTab('facilities');
+                          }}
+                          className="py-2.5 flex justify-between items-center cursor-pointer hover:bg-slate-50 px-2 rounded-lg transition-colors"
+                          title="Bấm để lọc danh sách theo khu vực này"
+                        >
+                          <span className="font-semibold text-slate-600 flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${zone.color}`} />
+                            {zone.label}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400">({percent}%)</span>
+                            <strong className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-800 hover:bg-slate-200 transition-colors">{num} cơ sở</strong>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Total row for Industrial Zone */}
+                  <div className="py-2 flex justify-between items-center px-2 bg-slate-50/70 border-t border-slate-200 mt-1 rounded text-xs">
+                    <span className="font-bold text-slate-850">Tổng cộng theo khu vực</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-slate-400 text-[10px] font-bold">(100%)</span>
+                      <strong className="font-mono bg-red-100 text-red-700 px-2 py-0.5 rounded text-[11px]">{facilities.length} cơ sở</strong>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2946,13 +4662,24 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
 
           {/* Detailed Statistics by Officer */}
           <div className="pt-6 border-t border-slate-100 space-y-3" id="officer-by-group-stats">
-            <div>
-              <h4 className="font-extrabold text-xs text-slate-500 block uppercase tracking-wider">
-                Thống kê số lượng cơ sở theo cán bộ quản lý
-              </h4>
-              <p className="text-slate-400 text-[10px] mt-0.5">
-                Bảng phân tách chi tiết số lượng nhóm quản lý theo Phụ lục II của từng cán bộ phụ trách địa bàn.
-              </p>
+            <div className="flex justify-between items-start">
+              <div>
+                <h4 className="font-extrabold text-xs text-slate-500 block uppercase tracking-wider">
+                  Thống kê số lượng cơ sở theo cán bộ quản lý
+                </h4>
+                <p className="text-slate-400 text-[10px] mt-0.5">
+                  Bảng phân tách chi tiết số lượng nhóm quản lý theo Phụ lục II của từng cán bộ phụ trách địa bàn.
+                </p>
+              </div>
+              <button
+                id="export-excel-officer-stats-btn"
+                onClick={handleExportOfficerStatsExcel}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-[10.5px] font-bold transition-all cursor-pointer shadow-xs shrink-0 ml-4"
+                title="Xuất thống kê cán bộ quản lý ra file Excel (Excel/CSV)"
+              >
+                <Download className="w-3 h-3" />
+                Xuất Excel
+              </button>
             </div>
 
             <div className="overflow-x-auto border border-slate-100 rounded-xl shadow-xs">
@@ -2963,14 +4690,20 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                     <th className="p-3">Tên cán bộ</th>
                     <th className="p-3 text-center">Phụ lục II - Nhóm I</th>
                     <th className="p-3 text-center">Phụ lục II - Nhóm II</th>
+                    <th className="p-3 text-center text-emerald-700">Trong KCN</th>
+                    <th className="p-3 text-center text-amber-700">Trong CCN</th>
+                    <th className="p-3 text-center text-slate-700">Ngoài KCN, CCN</th>
                     <th className="p-3 text-center bg-slate-100/40">Tổng số cơ sở</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
-                  {(officers || []).map((o, idx) => {
+                  {(officers || []).filter(o => o.position !== 'Chiến sĩ').map((o, idx) => {
                     const assignedFacs = facilities.filter(f => f.officerId === o.id);
                     const countI = assignedFacs.filter(f => f.dangerLevel === 'Nhóm I').length;
                     const countII = assignedFacs.filter(f => f.dangerLevel === 'Nhóm II').length;
+                    const countKCN = assignedFacs.filter(f => f.industrialZone === 'KCN, KCX').length;
+                    const countCCN = assignedFacs.filter(f => f.industrialZone === 'CCN').length;
+                    const countOther = assignedFacs.filter(f => !f.industrialZone || f.industrialZone === 'Ngoài KCN, KCX, CCN').length;
                     const total = assignedFacs.length;
 
                     return (
@@ -3000,6 +4733,33 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                             <span className="text-slate-350 font-normal">0</span>
                           )}
                         </td>
+                        <td className="p-3 text-center font-mono text-emerald-650 font-bold">
+                          {countKCN > 0 ? (
+                            <span className="bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full border border-emerald-100">
+                              {countKCN}
+                            </span>
+                          ) : (
+                            <span className="text-slate-350 font-normal">0</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center font-mono text-amber-650 font-bold">
+                          {countCCN > 0 ? (
+                            <span className="bg-amber-50 text-amber-700 px-2.5 py-0.5 rounded-full border border-amber-100">
+                              {countCCN}
+                            </span>
+                          ) : (
+                            <span className="text-slate-350 font-normal">0</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center font-mono text-slate-600 font-bold">
+                          {countOther > 0 ? (
+                            <span className="bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-full border border-slate-200">
+                              {countOther}
+                            </span>
+                          ) : (
+                            <span className="text-slate-350 font-normal">0</span>
+                          )}
+                        </td>
                         <td className="p-3 text-center font-mono font-bold bg-slate-50/20 text-slate-800">
                           {total > 0 ? (
                             <span className="bg-slate-100 text-slate-800 px-2.5 py-0.5 rounded-md border border-slate-200">
@@ -3018,6 +4778,9 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                     const unassignedFacs = facilities.filter(f => !f.officerId || !(officers || []).some(o => o.id === f.officerId));
                     const unI = unassignedFacs.filter(f => f.dangerLevel === 'Nhóm I').length;
                     const unII = unassignedFacs.filter(f => f.dangerLevel === 'Nhóm II').length;
+                    const unKCN = unassignedFacs.filter(f => f.industrialZone === 'KCN, KCX').length;
+                    const unCCN = unassignedFacs.filter(f => f.industrialZone === 'CCN').length;
+                    const unOther = unassignedFacs.filter(f => !f.industrialZone || f.industrialZone === 'Ngoài KCN, KCX, CCN').length;
                     const unTotal = unassignedFacs.length;
                     
                     if (unTotal === 0) return null;
@@ -3042,6 +4805,27 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                             </span>
                           ) : '0'}
                         </td>
+                        <td className="p-3 text-center font-mono text-slate-500">
+                          {unKCN > 0 ? (
+                            <span className="bg-slate-150 text-slate-600 px-2.5 py-0.5 rounded-full border border-slate-200">
+                              {unKCN}
+                            </span>
+                          ) : '0'}
+                        </td>
+                        <td className="p-3 text-center font-mono text-slate-500">
+                          {unCCN > 0 ? (
+                            <span className="bg-slate-150 text-slate-600 px-2.5 py-0.5 rounded-full border border-slate-200">
+                              {unCCN}
+                            </span>
+                          ) : '0'}
+                        </td>
+                        <td className="p-3 text-center font-mono text-slate-500">
+                          {unOther > 0 ? (
+                            <span className="bg-slate-150 text-slate-600 px-2.5 py-0.5 rounded-full border border-slate-200">
+                              {unOther}
+                            </span>
+                          ) : '0'}
+                        </td>
                         <td className="p-3 text-center font-mono text-slate-600 font-bold bg-slate-50/20">
                           <span className="bg-slate-150 text-slate-600 px-2.5 py-0.5 rounded-md border border-slate-200">
                             {unTotal}
@@ -3059,6 +4843,15 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                     </td>
                     <td className="p-3.5 text-center font-mono font-extrabold text-blue-700 bg-blue-50/10">
                       {facilities.filter(f => f.dangerLevel === 'Nhóm II').length}
+                    </td>
+                    <td className="p-3.5 text-center font-mono font-extrabold text-emerald-700 bg-emerald-50/10">
+                      {facilities.filter(f => f.industrialZone === 'KCN, KCX').length}
+                    </td>
+                    <td className="p-3.5 text-center font-mono font-extrabold text-amber-700 bg-amber-50/10">
+                      {facilities.filter(f => f.industrialZone === 'CCN').length}
+                    </td>
+                    <td className="p-3.5 text-center font-mono font-extrabold text-slate-700 bg-slate-100/10">
+                      {facilities.filter(f => !f.industrialZone || f.industrialZone === 'Ngoài KCN, KCX, CCN').length}
                     </td>
                     <td className="p-3.5 text-center font-mono font-extrabold text-slate-900 bg-slate-100">
                       {facilities.length}
@@ -3093,20 +4886,31 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                   title="Xuất danh sách cơ sở đã lập hồ sơ nghiệp vụ ra Excel"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  Xuất file Excel
+                  Xuất Đã lập HS
+                </button>
+                <button
+                  id="export-non-dossier-excel-btn"
+                  onClick={handleExportNonDossierExcel}
+                  className="flex items-center gap-1 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-extrabold px-3 py-1.5 rounded-md shadow-sm transition-all focus:outline-none cursor-pointer"
+                  title="Xuất danh sách cơ sở chưa lập hồ sơ nghiệp vụ ra Excel"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Xuất Chưa lập HS
                 </button>
               </div>
             </div>
 
-            <div className="overflow-x-auto border border-slate-100 rounded-xl shadow-xs">
+            <div className="overflow-x-auto max-h-[400px] overflow-y-auto border border-slate-100 rounded-xl shadow-xs relative">
               <table className="w-full text-left text-xs text-slate-600 border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
-                    <th className="p-3 pl-4 text-center w-12">STT</th>
-                    <th className="p-3">Tên cơ sở</th>
-                    <th className="p-3">Số hồ sơ nghiệp vụ</th>
-                    <th className="p-3 text-center">Ngày lập hồ sơ</th>
-                    <th className="p-3">Cán bộ quản lý</th>
+                  <tr className="bg-slate-50 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+                    <th className="sticky top-0 bg-slate-50 p-3 pl-4 text-center w-12 z-10 border-b border-slate-100">STT</th>
+                    <th className="sticky top-0 bg-slate-50 p-3 w-28 z-10 border-b border-slate-100">Mã cơ sở</th>
+                    <th className="sticky top-0 bg-slate-50 p-3 z-10 border-b border-slate-100">Tên cơ sở</th>
+                    <th className="sticky top-0 bg-slate-50 p-3 z-10 border-b border-slate-100">Số hồ sơ nghiệp vụ</th>
+                    <th className="sticky top-0 bg-slate-50 p-3 text-center w-32 z-10 border-b border-slate-100">Ngày lập</th>
+                    <th className="sticky top-0 bg-slate-50 p-3 w-48 z-10 border-b border-slate-100">Cán bộ quản lý</th>
+                    <th className="sticky top-0 bg-slate-50 p-3 z-10 border-b border-slate-100">Ghi chú</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
@@ -3116,6 +4920,7 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                       return (
                         <tr key={f.id} className="hover:bg-slate-50/50 transition-colors">
                           <td className="p-3 pl-4 text-center text-slate-450 font-mono text-[11px]">{idx + 1}</td>
+                          <td className="p-3 font-mono text-[11px] text-slate-500 font-bold">{f.id}</td>
                           <td className="p-3">
                             <div className="font-bold text-slate-800 hover:text-red-700 cursor-pointer transition-colors" onClick={() => {
                               setFacSearch(f.name);
@@ -3147,12 +4952,15 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                               <span className="text-slate-400 italic font-normal text-[11px]">Chưa phân công</span>
                             )}
                           </td>
+                          <td className="p-3 text-slate-500 text-[11px] font-medium max-w-[200px] truncate" title={f.notes || ''}>
+                            {f.notes || '-'}
+                          </td>
                         </tr>
                       );
                     })
                   ) : (
                     <tr>
-                      <td colSpan={5} className="p-8 text-center text-slate-400 italic font-normal">
+                      <td colSpan={7} className="p-8 text-center text-slate-400 italic font-normal">
                         Chưa có cơ sở nào được lập hồ sơ nghiệp vụ.
                       </td>
                     </tr>
@@ -3216,6 +5024,456 @@ export default function FireProtectionModule({ store }: FireProtectionProps) {
                 className="px-3.5 py-1.5 bg-red-650 hover:bg-red-600 text-white rounded-lg cursor-pointer transition-colors shadow-sm"
               >
                 Đồng ý xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Import Excel */}
+      {isImportingExcel && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in no-print">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+            {/* Header */}
+            <div className="bg-slate-50 border-b border-slate-100 px-6 py-4 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm">Nhập dữ liệu cơ sở từ file Excel</h3>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">Thêm mới hoặc cập nhật thông tin hàng loạt</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsImportingExcel(false)}
+                className="w-7 h-7 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+              {/* Instructions and Download Template */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="md:col-span-2 bg-slate-50 rounded-xl p-4.5 border border-slate-200/60 space-y-3">
+                  <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-blue-600" />
+                    Hướng dẫn chuẩn bị dữ liệu
+                  </h4>
+                  <ul className="text-[11px] text-slate-600 space-y-2 list-disc list-inside font-medium leading-relaxed">
+                    <li>Sử dụng đúng cấu trúc file mẫu để đảm bảo hệ thống nhận diện đúng các cột thông tin.</li>
+                    <li>Các trường có dấu <span className="text-red-500 font-bold">(*)</span> là bắt buộc (Mã cơ sở, Tên cơ sở, Địa chỉ, Lĩnh vực, Loại hình, Phân loại phụ lục II, Thẩm quyền quản lý, Trạng thái).</li>
+                    <li>Nếu <strong className="text-slate-800">Mã cơ sở</strong> đã tồn tại trong hệ thống, dữ liệu mới sẽ <strong className="text-blue-600">ghi đè</strong> thông tin cũ.</li>
+                    <li>Cán bộ quản lý địa bàn có thể nhập tên cán bộ (ví dụ: <code className="bg-slate-200 text-slate-800 px-1 py-0.2 rounded">Nguyễn Văn Trọng</code>) hoặc Mã cán bộ (<code className="bg-slate-200 text-slate-800 px-1 py-0.2 rounded">OFF_001</code>) để hệ thống tự động liên kết.</li>
+                  </ul>
+                </div>
+
+                <div className="bg-blue-50/50 rounded-xl p-4.5 border border-blue-100 flex flex-col justify-between space-y-4">
+                  <div>
+                    <h4 className="font-bold text-blue-950 text-xs">Mẫu file Excel chuẩn</h4>
+                    <p className="text-[10.5px] text-blue-700/80 mt-1 font-medium leading-normal">Tải về mẫu file Excel được thiết lập sẵn các trường dữ liệu và dữ liệu mẫu chuẩn.</p>
+                  </div>
+                  <button
+                    onClick={handleDownloadImportTemplate}
+                    className="w-full flex items-center justify-center gap-2 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" />
+                    Tải file Excel mẫu
+                  </button>
+                </div>
+              </div>
+
+              {/* Upload Drop Zone */}
+              <div className="space-y-2">
+                <span className="font-bold text-slate-700 text-xs block">Chọn file Excel tải lên</span>
+                <label className="border-2 border-dashed border-slate-200 hover:border-blue-400 bg-slate-50/30 hover:bg-blue-50/10 rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all">
+                  <input 
+                    type="file" 
+                    accept=".xlsx, .xls" 
+                    className="hidden" 
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setExcelFile(file);
+                        handleParseExcelFile(file);
+                      }
+                    }}
+                  />
+                  <Upload className="w-8 h-8 text-slate-400" />
+                  <span className="font-bold text-xs text-slate-700">Kéo thả file hoặc click để chọn</span>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase">Hỗ trợ định dạng .xlsx, .xls</span>
+                </label>
+              </div>
+
+              {/* File Info & Status Message */}
+              {(excelFile || importStatus.message) && (
+                <div className="flex items-center justify-between p-3 rounded-lg border bg-slate-50 text-xs font-medium">
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                    <div>
+                      <span className="font-bold text-slate-800">{excelFile?.name}</span>
+                      <span className="text-slate-400 ml-2">({excelFile ? (excelFile.size / 1024).toFixed(1) : 0} KB)</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {importStatus.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                    {importStatus.type === 'error' && <AlertCircle className="w-4 h-4 text-red-600" />}
+                    <span className={`font-bold ${
+                      importStatus.type === 'success' ? 'text-emerald-700' : 
+                      importStatus.type === 'error' ? 'text-red-700' : 'text-slate-600'
+                    }`}>
+                      {importStatus.message}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Parsed Preview Table */}
+              {parsedFacilities.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      Xem trước dữ liệu sẽ nhập
+                      <span className="bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full text-[10px]">
+                        {parsedFacilities.length} dòng
+                      </span>
+                    </span>
+                    <div className="flex items-center gap-3 text-[11px] font-semibold">
+                      <span className="flex items-center gap-1 text-emerald-600">
+                        <Check className="w-3.5 h-3.5" />
+                        {parsedFacilities.filter(f => f.errors.length === 0 && !f.isDuplicate).length} Tạo mới
+                      </span>
+                      <span className="flex items-center gap-1 text-blue-600">
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        {parsedFacilities.filter(f => f.errors.length === 0 && f.isDuplicate).length} Ghi đè
+                      </span>
+                      {parsedFacilities.some(f => f.errors.length > 0) && (
+                        <span className="flex items-center gap-1 text-red-600">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          {parsedFacilities.filter(f => f.errors.length > 0).length} Lỗi bỏ qua
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-100 rounded-xl overflow-hidden max-h-60 overflow-y-auto shadow-inner bg-slate-50/20">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-10">
+                          <th className="p-2.5">Mã cơ sở</th>
+                          <th className="p-2.5">Tên cơ sở</th>
+                          <th className="p-2.5">Địa chỉ / Xã phường</th>
+                          <th className="p-2.5">Đại diện / SĐT</th>
+                          <th className="p-2.5">Trạng thái dữ liệu</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {parsedFacilities.map((fac, idx) => (
+                          <tr 
+                            key={fac.id + '-' + idx} 
+                            className={`hover:bg-slate-50 transition-colors ${
+                              fac.errors.length > 0 ? 'bg-red-50/40' : 
+                              fac.isDuplicate ? 'bg-blue-50/20' : 'bg-white'
+                            }`}
+                          >
+                            <td className="p-2.5 font-mono font-bold text-slate-700">{fac.id}</td>
+                            <td className="p-2.5 font-bold text-slate-800">{fac.name}</td>
+                            <td className="p-2.5 text-slate-600">
+                              <div className="font-semibold">{fac.address}</div>
+                              <div className="text-[10px] text-slate-400 font-bold">{fac.ward}</div>
+                            </td>
+                            <td className="p-2.5 text-slate-600">
+                              <div className="font-semibold">{fac.representative}</div>
+                              <div className="text-[10.5px] font-mono text-slate-500">{fac.phone}</div>
+                            </td>
+                            <td className="p-2.5 font-bold">
+                              {fac.errors.length > 0 ? (
+                                <div className="space-y-1">
+                                  {fac.errors.map((e: string, i: number) => (
+                                    <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] uppercase font-extrabold">
+                                      <AlertTriangle className="w-2.5 h-2.5" />
+                                      {e}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap gap-1">
+                                  {fac.isDuplicate ? (
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] uppercase font-extrabold">
+                                      <RefreshCw className="w-2.5 h-2.5" />
+                                      Ghi đè
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] uppercase font-extrabold">
+                                      <Check className="w-2.5 h-2.5" />
+                                      Hợp lệ
+                                    </span>
+                                  )}
+                                  {fac.warnings.map((w: string, i: number) => (
+                                    <span key={i} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] uppercase font-bold" title={w}>
+                                      <AlertCircle className="w-2.5 h-2.5" />
+                                      Cảnh báo
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex justify-end gap-2.5 text-xs font-bold shrink-0">
+              <button
+                onClick={() => setIsImportingExcel(false)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg cursor-pointer transition-colors"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={handleCommitImport}
+                disabled={parsedFacilities.filter(f => f.errors.length === 0).length === 0 || importStatus.type === 'success'}
+                className="flex items-center gap-1.5 px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg cursor-pointer transition-colors shadow-sm disabled:cursor-not-allowed"
+              >
+                <Check className="w-4 h-4" />
+                Tiến hành nhập dữ liệu ({parsedFacilities.filter(f => f.errors.length === 0).length} dòng)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Import Excel for Inspections */}
+      {isImportingInspExcel && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in no-print" id="import-inspection-excel-modal">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+            {/* Header */}
+            <div className="bg-slate-50 border-b border-slate-100 px-6 py-4 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm">Nhập dữ liệu biên bản từ file Excel</h3>
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">Lập biên bản kiểm tra phòng hỏa hàng loạt dựa trên mẫu chuẩn</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsImportingInspExcel(false)}
+                className="w-7 h-7 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+              {/* Instructions and Download Template */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="md:col-span-2 bg-slate-50 rounded-xl p-4.5 border border-slate-200/60 space-y-3">
+                  <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-red-600" />
+                    Hướng dẫn chuẩn bị dữ liệu biên bản
+                  </h4>
+                  <ul className="text-[11px] text-slate-600 space-y-2 list-disc list-inside font-medium leading-relaxed">
+                    <li>Sử dụng cấu trúc cột mẫu chuẩn của hệ thống để nhận diện đúng thông tin phiếu lập biên bản mới.</li>
+                    <li>Các trường có dấu <span className="text-red-500 font-bold">(*)</span> là bắt buộc (Mã cơ sở, Ngày lập biên bản, Hình thức, Kết quả, Trạng thái xử lý lỗi).</li>
+                    <li><strong className="text-slate-800">Cảnh báo Trùng lặp:</strong> Hệ thống tự động kiểm tra biên bản bị trùng khớp (theo cùng <strong className="text-slate-800">Mã cơ sở</strong> &amp; <strong className="text-slate-800">Ngày kiểm tra</strong> hoặc trùng <strong className="text-slate-800">Mã biên bản</strong>). Nếu trùng khớp, hệ thống sẽ đưa ra cảnh báo màu vàng và thực hiện <strong className="text-amber-600">ghi đè thông tin cũ</strong> nếu người dùng xác nhận nhập.</li>
+                    <li>Cán bộ kiểm tra, phân loại Phụ lục II, trạng thái hoạt động của cơ sở, và lực lượng tại chỗ đều được liên kết chuẩn hóa dựa trên phiếu mẫu của cơ sở.</li>
+                  </ul>
+                </div>
+
+                <div className="bg-red-50/50 rounded-xl p-4.5 border border-red-100 flex flex-col justify-between space-y-4">
+                  <div>
+                    <h4 className="font-bold text-red-950 text-xs">Mẫu Biên Bản chuẩn</h4>
+                    <p className="text-[10.5px] text-red-700/80 mt-1 font-medium leading-normal">Mẫu file Excel tự động tạo ra dựa trên các cơ sở và cán bộ thực tế trong hệ thống của bạn làm mẫu tham khảo.</p>
+                  </div>
+                  <button
+                    onClick={handleDownloadInspTemplate}
+                    className="w-full flex items-center justify-center gap-2 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" />
+                    Tải Excel mẫu (Phụ thuộc BB mới)
+                  </button>
+                </div>
+              </div>
+
+              {/* Upload Drop Zone */}
+              <div className="space-y-2">
+                <span className="font-bold text-slate-700 text-xs block">Chọn file Excel biên bản kiểm tra</span>
+                <label className="border-2 border-dashed border-slate-200 hover:border-red-400 bg-slate-50/30 hover:bg-red-50/10 rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all">
+                  <input 
+                    type="file" 
+                    accept=".xlsx, .xls" 
+                    className="hidden" 
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setInspExcelFile(file);
+                        handleParseInspExcelFile(file);
+                      }
+                    }}
+                  />
+                  <Upload className="w-8 h-8 text-slate-400" />
+                  <span className="font-bold text-xs text-slate-700">Kéo thả file biên bản hoặc click để chọn</span>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase">Hỗ trợ định dạng .xlsx, .xls</span>
+                </label>
+              </div>
+
+              {/* File Info & Status Message */}
+              {(inspExcelFile || inspImportStatus.message) && (
+                <div className="flex items-center justify-between p-3 rounded-lg border bg-slate-50 text-xs font-medium">
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                    <div>
+                      <span className="font-bold text-slate-800">{inspExcelFile?.name}</span>
+                      <span className="text-slate-400 ml-2">({inspExcelFile ? (inspExcelFile.size / 1024).toFixed(1) : 0} KB)</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {inspImportStatus.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                    {inspImportStatus.type === 'error' && <AlertCircle className="w-4 h-4 text-red-600" />}
+                    <span className={`font-bold ${
+                      inspImportStatus.type === 'success' ? 'text-emerald-700' : 
+                      inspImportStatus.type === 'error' ? 'text-red-700' : 'text-slate-600'
+                    }`}>
+                      {inspImportStatus.message}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Parsed Preview Table */}
+              {parsedInspections.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      Xem trước danh sách biên bản sẽ nhập
+                      <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full text-[10px]">
+                        {parsedInspections.length} biên bản
+                      </span>
+                    </span>
+                    <div className="flex items-center gap-3 text-[11px] font-semibold">
+                      <span className="flex items-center gap-1 text-emerald-600">
+                        <Check className="w-3.5 h-3.5" />
+                        {parsedInspections.filter(i => i.errors.length === 0 && !i.isDuplicate).length} Tạo mới
+                      </span>
+                      <span className="flex items-center gap-1 text-amber-600">
+                        <RefreshCw className="w-3.5 h-3.5 text-amber-500 animate-spin-slow" />
+                        {parsedInspections.filter(i => i.errors.length === 0 && i.isDuplicate).length} Trùng khớp (Sẽ ghi đè)
+                      </span>
+                      {parsedInspections.some(i => i.errors.length > 0) && (
+                        <span className="flex items-center gap-1 text-red-600">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          {parsedInspections.filter(i => i.errors.length > 0).length} Dòng lỗi bỏ qua
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-100 rounded-xl overflow-hidden max-h-60 overflow-y-auto shadow-inner bg-slate-50/20">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-10">
+                          <th className="p-2.5">Cơ sở / Mã cơ sở</th>
+                          <th className="p-2.5">Ngày / Hình thức</th>
+                          <th className="p-2.5">Nội dung / Kết quả</th>
+                          <th className="p-2.5">Hạn khắc phục / Trạng thái xử lý</th>
+                          <th className="p-2.5">Trạng thái biên bản</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {parsedInspections.map((insp, idx) => (
+                          <tr 
+                            key={insp.id + '-' + idx} 
+                            className={`hover:bg-slate-50 transition-colors ${
+                              insp.errors.length > 0 ? 'bg-red-50/40' : 
+                              insp.isDuplicate ? 'bg-amber-50/30 border-l-2 border-l-amber-500' : 'bg-white'
+                            }`}
+                          >
+                            <td className="p-2.5 text-slate-650">
+                              <div className="font-bold text-slate-800">{insp.facilityName}</div>
+                              <div className="font-mono text-[10px] text-slate-400 font-bold">Mã cơ sở: {insp.facilityId}</div>
+                            </td>
+                            <td className="p-2.5 text-slate-600">
+                              <div className="font-semibold">{formatDateDMY(insp.date)}</div>
+                              <div className="text-[10px] text-slate-400 font-bold uppercase">{insp.type}</div>
+                            </td>
+                            <td className="p-2.5 text-slate-600 max-w-xs truncate" title={insp.content}>
+                              <div className="font-semibold truncate max-w-[200px]">{insp.content}</div>
+                              <span className={`inline-block text-[10px] px-1.5 py-0.2 rounded font-bold ${
+                                insp.result === 'Đạt yêu cầu' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                              }`}>
+                                {insp.result}
+                              </span>
+                            </td>
+                            <td className="p-2.5 text-slate-600">
+                              <div className="font-semibold text-slate-750">{insp.deadline ? formatDateDMY(insp.deadline) : 'Không hạn'}</div>
+                              <div className="text-[10px] font-bold text-slate-500">{insp.remedyStatus}</div>
+                            </td>
+                            <td className="p-2.5 font-bold">
+                              {insp.errors.length > 0 ? (
+                                <div className="space-y-1">
+                                  {insp.errors.map((e: string, i: number) => (
+                                    <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] uppercase font-extrabold">
+                                      <AlertTriangle className="w-2.5 h-2.5" />
+                                      {e}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap gap-1">
+                                  {insp.isDuplicate ? (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] uppercase font-extrabold" title={insp.dupReason}>
+                                      <AlertTriangle className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                                      Trùng lặp (Sẽ ghi đè)
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] uppercase font-extrabold">
+                                      <Check className="w-2.5 h-2.5" />
+                                      Hợp lệ
+                                    </span>
+                                  )}
+                                  {insp.warnings.map((w: string, i: number) => (
+                                    <span key={i} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] uppercase font-bold" title={w}>
+                                      <AlertCircle className="w-2.5 h-2.5" />
+                                      Cảnh báo
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex justify-end gap-2.5 text-xs font-bold shrink-0">
+              <button
+                onClick={() => setIsImportingInspExcel(false)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg cursor-pointer transition-colors"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={handleCommitInspImport}
+                disabled={parsedInspections.filter(i => i.errors.length === 0).length === 0 || inspImportStatus.type === 'success'}
+                className="flex items-center gap-1.5 px-5 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg cursor-pointer transition-colors shadow-sm disabled:cursor-not-allowed"
+              >
+                <Check className="w-4 h-4" />
+                Tiến hành nhập dữ liệu ({parsedInspections.filter(i => i.errors.length === 0).length} biên bản)
               </button>
             </div>
           </div>

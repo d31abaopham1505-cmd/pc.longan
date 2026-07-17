@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { PCCCStoreType } from '../lib/store';
 import { DocumentIncoming, DocumentOutgoing } from '../types';
-import { jsPDF } from 'jspdf';
+import { createVietnameseDoc, downloadPdfBlob, stripAccents, sanitizeFileName } from '../lib/pdfUtils';
 import { 
   FileText, Search, Plus, Trash2, Edit2, Download, 
   ArrowDownLeft, ArrowUpRight, Send, CheckCircle2, AlertCircle, X, Users, Paperclip,
@@ -37,7 +37,7 @@ export default function DocumentModule({ store }: DocumentModuleProps) {
     }, 600);
   };
 
-  const handleDownloadFile = (fileName: string, title?: string, details?: {
+  const handleDownloadFile = async (fileName: string, title?: string, details?: {
     docNumber?: string;
     date?: string;
     publisher?: string;
@@ -79,125 +79,109 @@ export default function DocumentModule({ store }: DocumentModuleProps) {
     const docPub = resolvedDetails?.publisher || "Phong Canh sat PCCC";
     const docSummary = resolvedDetails?.summary || "Noi dung trich yeu nghiep vu";
 
-    // Clean Vietnamese accents so standard Helvetica font can display the PDF correctly
-    const cleanStr = (str: string) => {
-      if (!str) return '';
-      let co = str.toString();
-      co = co.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
-      co = co.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, "e");
-      co = co.replace(/ì|í|ị|ỉ|ĩ/g, "i");
-      co = co.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, "o");
-      co = co.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, "u");
-      co = co.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, "y");
-      co = co.replace(/đ/g, "d");
-      co = co.replace(/À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ/g, "A");
-      co = co.replace(/È|É|Ẹ|Ẻ|Ẽ|Ê|Ề|Ế|Ệ|Ể|Ễ/g, "E");
-      co = co.replace(/Ì|Í|Ị|Ỉ|Ĩ/g, "I");
-      co = co.replace(/Ò|Ó|Ọ|Bả|Õ|Ô|Ồ|Ố|Ộ|Ổ|Ỗ|Ơ|Ờ|Ớ|Ợ|Ở|Ỡ/g, "O");
-      co = co.replace(/Ù|Ú|Ụ|Ủ|Ũ|Ư|Ừ|Ứ|Ự|Ử|Ữ/g, "U");
-      co = co.replace(/Ỳ|Ý|Y|Ỷ|Ỹ/g, "Y");
-      co = co.replace(/Đ/g, "D");
-      // Remove any non-ASCII characters to keep PDF stream 100% compliant
-      return co.replace(/[^\x20-\x7E]/g, "");
-    };
-
-    const cPub = cleanStr(docPub).toUpperCase();
-    const cNo = cleanStr(docNo);
-    const cDate = cleanStr(docDate);
-    const cTitle = cleanStr(docTitle).toUpperCase();
-    const cSummary = cleanStr(docSummary);
-
     try {
-      const doc = new jsPDF();
+      const { doc, isUnicode } = await createVietnameseDoc();
+      const fontFamily = isUnicode ? "Roboto" : "Helvetica";
+
+      const cleanStr = (str: string) => {
+        if (!str) return '';
+        return isUnicode ? str.toString() : stripAccents(str.toString());
+      };
+
+      const cPub = cleanStr(docPub).toUpperCase();
+      const cNo = cleanStr(docNo);
+      const cDate = cleanStr(docDate);
+      const cTitle = cleanStr(docTitle).toUpperCase();
+      const cSummary = cleanStr(docSummary);
 
       // Draw border box
       doc.setDrawColor(200, 200, 200);
       doc.rect(10, 10, 190, 277);
 
       // National heading on right
-      doc.setFont("Helvetica", "bold");
+      doc.setFont(fontFamily, "bold");
       doc.setFontSize(8);
-      doc.text("CONG HOA XA HOI CHU NGHIA VIET NAM", 110, 20);
+      doc.text(isUnicode ? "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM" : "CONG HOA XA HOI CHU NGHIA VIET NAM", 110, 20);
       doc.setFontSize(7.5);
-      doc.text("Doc lap - Tu do - Hanh phuc", 128, 24);
+      doc.text(isUnicode ? "Độc lập - Tự do - Hạnh phúc" : "Doc lap - Tu do - Hanh phuc", 128, 24);
       doc.setLineWidth(0.3);
       doc.line(128, 26, 168, 26);
-      doc.setFont("Helvetica", "italic");
+      doc.setFont(fontFamily, "italic");
       doc.setFontSize(7);
-      doc.text(`Quan PCCC, ngay ${cDate}`, 122, 31);
+      doc.text(isUnicode ? `Quận PCCC, ngày ${cDate}` : `Quan PCCC, ngay ${cDate}`, 122, 31);
 
       // Publisher info on left
-      doc.setFont("Helvetica", "bold");
+      doc.setFont(fontFamily, "bold");
       doc.setFontSize(8);
       doc.text(cPub, 15, 20);
-      doc.text("SO CANH SAT PCCC & CNCH", 15, 24);
-      doc.setFont("Helvetica", "normal");
+      doc.text(isUnicode ? "SỞ CẢNH SÁT PCCC & CNCH" : "SO CANH SAT PCCC & CNCH", 15, 24);
+      doc.setFont(fontFamily, "normal");
       doc.setFontSize(7.5);
-      doc.text(`So: ${cNo}`, 15, 29);
+      doc.text(isUnicode ? `Số: ${cNo}` : `So: ${cNo}`, 15, 29);
 
       doc.setLineWidth(0.5);
       doc.line(15, 36, 195, 36);
 
       // Title
-      doc.setFont("Helvetica", "bold");
+      doc.setFont(fontFamily, "bold");
       doc.setFontSize(11);
-      doc.text("QUYET DINH / CONG VAN CHI DAO NGHI KIP", 105, 48, { align: "center" });
-      doc.setFont("Helvetica", "bolditalic");
+      doc.text(isUnicode ? "QUYẾT ĐỊNH / CÔNG VĂN CHỈ ĐẠO NGHIỆP VỤ" : "QUYET DINH / CONG VAN CHI DAO NGHI KIP", 105, 48, { align: "center" });
+      doc.setFont(fontFamily, "bolditalic");
       doc.setFontSize(8.5);
-      doc.text(`Ve viec: ${cTitle}`, 105, 54, { align: "center" });
+      doc.text(isUnicode ? `Về việc: ${cTitle}` : `Ve viec: ${cTitle}`, 105, 54, { align: "center" });
 
       // Greeting
-      doc.setFont("Helvetica", "bold");
+      doc.setFont(fontFamily, "bold");
       doc.setFontSize(8.5);
-      doc.text("Kinh gui: Cac phong, ban, don vi lien quan va cac co so truc thuoc dien quan ly.", 18, 68);
+      doc.text(isUnicode ? "Kính gửi: Các phòng, ban, đơn vị liên quan và các cơ sở trực thuộc diện quản lý." : "Kinh gui: Cac phong, ban, don vi lien quan va cac co so truc thuoc dien quan ly.", 18, 68);
 
       // Body lines
-      doc.setFont("Helvetica", "normal");
+      doc.setFont(fontFamily, "normal");
       doc.setFontSize(8);
       
       const bodyY_start = 76;
-      doc.text("Can cu Luat Phong chay va chua chay ngay 29 thang 6 nam 2001; Luat sua doi, bo sung mot so dieu cua", 18, bodyY_start);
-      doc.text("Luat Phong chay va chua chay ngay 22 thang 11 nam 2013 cua Quoc hoi.", 18, bodyY_start + 5);
+      doc.text(isUnicode ? "Căn cứ Luật Phòng cháy và chữa cháy ngày 29 tháng 6 năm 2001; Luật sửa đổi, bổ sung một số điều của" : "Can cu Luat Phong chay va chua chay ngay 29 thang 6 nam 2001; Luat sua doi, bo sung mot so dieu cua", 18, bodyY_start);
+      doc.text(isUnicode ? "Luat Phòng cháy và chữa cháy ngày 22 tháng 11 năm 2013 của Quốc hội." : "Luat Phong chay va chua chay ngay 22 thang 11 nam 2013 cua Quoc hoi.", 18, bodyY_start + 5);
       
-      doc.text("Xet de nghi cua Truong phong Canh sat phong chay, chua chay va cuu nan, cuu ho ve viec tang", 18, bodyY_start + 13);
-      doc.text("cuong cong tac nghiep vu van thu, kiem tra an toan lien tuc, giam thieu thiet hai.", 18, bodyY_start + 18);
+      doc.text(isUnicode ? "Xét đề nghị của Trưởng phòng Cảnh sát phòng cháy, chữa cháy và cứu nạn, cứu hộ về việc tăng" : "Xet de nghi cua Truong phong Canh sat phong chay, chua chay va cuu nan, cuu ho ve viec tang", 18, bodyY_start + 13);
+      doc.text(isUnicode ? "cường công tác nghiệp vụ văn thư, kiểm tra an toàn liên tục, giảm thiểu thiệt hại." : "cuong cong tac nghiep vu van thu, kiem tra an toan lien tuc, giam thieu thiet hai.", 18, bodyY_start + 18);
 
       // Summary grey box
       doc.setDrawColor(180, 0, 0);
       doc.setFillColor(252, 248, 248);
       doc.rect(18, bodyY_start + 25, 174, 30, "FD");
 
-      doc.setFont("Helvetica", "bold");
+      doc.setFont(fontFamily, "bold");
       doc.setTextColor(180, 0, 0);
-      doc.text("TOM TAT NOI DUNG VAN BAN BAO MAT / HO SO:", 22, bodyY_start + 31);
+      doc.text(isUnicode ? "TÓM TẮT NỘI DUNG VĂN BẢN BẢO MẬT / HỒ SƠ:" : "TOM TAT NOI DUNG VAN BAN BAO MAT / HO SO:", 22, bodyY_start + 31);
       
       doc.setTextColor(50, 50, 50);
-      doc.setFont("Helvetica", "normal");
-      doc.text(`* Trich yeu: ${cSummary}`, 22, bodyY_start + 38);
-      doc.text(`* Ma so hieu: ${cNo} | Co quan chu tri: ${cPub}`, 22, bodyY_start + 43);
-      doc.text(`* Phien ban so hoa luu kho hop phap tren he thong du lieu truc tuyen.`, 22, bodyY_start + 48);
+      doc.setFont(fontFamily, "normal");
+      doc.text(isUnicode ? `* Trích yếu: ${cSummary}` : `* Trich yeu: ${cSummary}`, 22, bodyY_start + 38);
+      doc.text(isUnicode ? `* Mã số hiệu: ${cNo} | Cơ quan chủ trì: ${cPub}` : `* Ma so hieu: ${cNo} | Co quan chu tri: ${cPub}`, 22, bodyY_start + 43);
+      doc.text(isUnicode ? `* Phiên bản số hóa lưu kho hợp pháp trên hệ thống dữ liệu trực tuyến.` : `* Phien ban so hoa luu kho hop phap tren he thong du lieu truc tuyen.`, 22, bodyY_start + 48);
 
       doc.setTextColor(0, 0, 0);
       // Continued body
-      doc.text("Yeu cau cac dong chi bham sat chi dao nghiem tuc, khao sat hien truong chat che,", 18, bodyY_start + 61);
-      doc.text("hoan thanh bao cao dinh ky va phoi hop voi cac ban nganh de xu ly bat cap hien tai.", 18, bodyY_start + 66);
-      doc.text("Nhan duoc van thu nay, yeu cau cac don vi khan truong trien khai dong bo./.", 18, bodyY_start + 71);
+      doc.text(isUnicode ? "Yêu cầu các đồng chí bám sát chỉ đạo nghiêm túc, khảo sát hiện trường chặt chẽ," : "Yeu cau cac dong chi bham sat chi dao nghiem tuc, khao sat hien truong chat che,", 18, bodyY_start + 61);
+      doc.text(isUnicode ? "hoàn thành báo cáo định kỳ và phối hợp với các ban ngành để xử lý bất cập hiện tại." : "hoan thanh bao cao dinh ky va phoi hop voi cac ban nganh de xu ly bat cap hien tai.", 18, bodyY_start + 66);
+      doc.text(isUnicode ? "Nhận được văn thư này, yêu cầu các đơn vị khẩn trương triển khai đồng bộ./." : "Nhan duoc van thu nay, yeu cau cac don vi khan truong trien khai dong bo./.", 18, bodyY_start + 71);
 
       // Signatures
       const sigY = bodyY_start + 85;
-      doc.setFont("Helvetica", "bold");
-      doc.text("Noi nhan:", 18, sigY);
-      doc.setFont("Helvetica", "normal");
+      doc.setFont(fontFamily, "bold");
+      doc.text(isUnicode ? "Nơi nhận:" : "Noi nhan:", 18, sigY);
+      doc.setFont(fontFamily, "normal");
       doc.setFontSize(7.5);
       doc.text("- Nhu tren;", 18, sigY + 5);
-      doc.text("- Luu van thu phong;", 18, sigY + 10);
-      doc.text("- Cong an quan (b/c);", 18, sigY + 15);
+      doc.text(isUnicode ? "- Lưu văn thư phòng;" : "- Luu van thu phong;", 18, sigY + 10);
+      doc.text(isUnicode ? "- Công an quận (b/c);" : "- Cong an quan (b/c);", 18, sigY + 15);
 
       // Sign on right
-      doc.setFont("Helvetica", "bold");
+      doc.setFont(fontFamily, "bold");
       doc.setFontSize(8);
-      doc.text("TM. BAN CHI HUY PCCC", 130, sigY);
-      doc.text("TRUONG PHONG", 136, sigY + 5);
+      doc.text(isUnicode ? "TM. BAN CHỈ HUY PCCC" : "TM. BAN CHI HUY PCCC", 130, sigY);
+      doc.text(isUnicode ? "TRƯỞNG PHÒNG" : "TRUONG PHONG", 136, sigY + 5);
 
       // Stamp circles
       doc.setDrawColor(200, 0, 0);
@@ -208,32 +192,21 @@ export default function DocumentModule({ store }: DocumentModuleProps) {
 
       doc.setFontSize(4.5);
       doc.setTextColor(200, 0, 0);
-      doc.text("CONG AN QUAN", 150, sigY + 18, { align: "center" });
-      doc.text("DA DUYET", 150, sigY + 22, { align: "center" });
+      doc.text(isUnicode ? "CÔNG AN QUẬN" : "CONG AN QUAN", 150, sigY + 18, { align: "center" });
+      doc.text(isUnicode ? "ĐÃ DUYỆT" : "DA DUYET", 150, sigY + 22, { align: "center" });
       doc.text("PCCC & CNCH", 150, sigY + 26, { align: "center" });
 
       // Leader Name
       doc.setTextColor(0, 0, 0);
       doc.setFontSize(8);
-      doc.setFont("Helvetica", "bold");
-      doc.text("Nguyen Van Hải", 138, sigY + 40);
+      doc.setFont(fontFamily, "bold");
+      doc.text(isUnicode ? "Nguyễn Văn Hải" : "Nguyen Van Hai", 138, sigY + 40);
 
-      // Save PDF using jsPDF
-      let finalFileName = fileName;
-      if (!finalFileName.toLowerCase().endsWith('.pdf')) {
-        finalFileName += '.pdf';
-      }
-      doc.save(finalFileName);
+      // Download PDF securely
+      downloadPdfBlob(doc, fileName);
     } catch (err) {
-      console.error("PDF generation failed, falling back to basic download", err);
-      // Basic fallback
-      const basicBlob = new Blob(["Simulated PDF: " + cTitle], { type: 'application/pdf' });
-      const element = document.createElement("a");
-      element.href = URL.createObjectURL(basicBlob);
-      element.download = fileName.endsWith('.pdf') ? fileName : fileName + '.pdf';
-      document.body.appendChild(element);
-      element.click();
-      document.body.removeChild(element);
+      console.error("PDF generation failed:", err);
+      alert("Đã xảy ra lỗi trong quá trình tạo tài liệu PDF.");
     }
   };
 
@@ -289,7 +262,7 @@ export default function DocumentModule({ store }: DocumentModuleProps) {
     setInArrivalDate('2026-06-13');
     setInPublisher('');
     setInSummary('');
-    setInAssigneeId(officers[0]?.id || '');
+    setInAssigneeId(officers.find(o => o.position !== 'Chiến sĩ')?.id || '');
     setInDeadline('');
     setInStatus('Chưa xử lý');
     setInFileLoc('CV_DEN_MOCK_2026.pdf');
@@ -347,7 +320,7 @@ export default function DocumentModule({ store }: DocumentModuleProps) {
     setOutPublishDate('2026-06-13');
     setOutReceiver('');
     setOutSummary('');
-    setOutAuthorId(officers[0]?.id || '');
+    setOutAuthorId(officers.find(o => o.position !== 'Chiến sĩ')?.id || '');
     setOutSigner('Nguyễn Văn Hải');
     setOutFileLoc('CV_DI_MOCK_2026.pdf');
     setIsAddingOut(true);
@@ -502,9 +475,6 @@ export default function DocumentModule({ store }: DocumentModuleProps) {
             <FileText className="w-6 h-6 text-red-650" />
             VĂN THƯ - LƯU TRỮ CÔNG VĂN
           </h2>
-          <p className="text-slate-500 text-xs mt-1">
-            Quản ý, phân quyền xử lý các quyết định xử phạt, chỉ huy chống cháy và báo cáo đệ trình UBND Quận năm 2026.
-          </p>
           {syncMessage && (
             <div className="mt-2 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-lg inline-flex items-center gap-1.5 animate-pulse shadow-sm">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -739,7 +709,7 @@ export default function DocumentModule({ store }: DocumentModuleProps) {
                         />
                       </div>
                       <div>
-                        <label className="block mb-1">Cơ quan ban hành phát lệnh</label>
+                        <label className="block mb-1">Cơ quan ban hành</label>
                         <input
                           id="in-form-publisher"
                           type="text"
@@ -773,7 +743,7 @@ export default function DocumentModule({ store }: DocumentModuleProps) {
                           onChange={(e) => setInAssigneeId(e.target.value)}
                           className="w-full p-2 border border-slate-205 rounded border-slate-200 text-xs text-slate-700 font-medium"
                         >
-                          {officers.map(o => (
+                          {officers.filter(o => o.position !== 'Chiến sĩ').map(o => (
                             <option key={o.id} value={o.id}>{o.rank} {o.fullName}</option>
                           ))}
                         </select>
@@ -1144,7 +1114,7 @@ export default function DocumentModule({ store }: DocumentModuleProps) {
                           onChange={(e) => setOutAuthorId(e.target.value)}
                           className="w-full p-2 border border-slate-205 rounded border-slate-200"
                         >
-                          {officers.map(o => (
+                          {officers.filter(o => o.position !== 'Chiến sĩ').map(o => (
                             <option key={o.id} value={o.id}>{o.rank} {o.fullName}</option>
                           ))}
                         </select>

@@ -47,6 +47,9 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
   const [formPriority, setFormPriority] = useState<'Thấp' | 'Trung bình' | 'Cao'>('Trung bình');
   const [formStatus, setFormStatus] = useState<'Chưa thực hiện' | 'Đang xử lý' | 'Hoàn thành' | 'Quá hạn'>('Chưa thực hiện');
   const [formResultNotes, setFormResultNotes] = useState('');
+  const [formRecurrence, setFormRecurrence] = useState('');
+  const [formDocNumber, setFormDocNumber] = useState('');
+  const [formPublisher, setFormPublisher] = useState('');
 
   // Sync state helpers
   const [isSyncing, setIsSyncing] = useState(false);
@@ -117,12 +120,24 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
     return () => clearInterval(timer);
   }, []);
 
+  // Parse taskId from URL deep links and automatically search for it
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const targetId = params.get('taskId') || params.get('task_id');
+    if (targetId) {
+      const match = tasks.find(t => t.id === targetId);
+      if (match) {
+        setSearchTerm(match.title);
+      }
+    }
+  }, [tasks]);
+
   const handleOpenAdd = () => {
     setEditingTask(null);
     setFormTitle('');
     setFormContent('');
     setFormCreator(store.currentUser?.fullName || 'Nguyễn Văn Hải');
-    setFormAssigneeId(officers[0]?.id || '');
+    setFormAssigneeId(officers.find(o => o.position !== 'Chiến sĩ')?.id || '');
     setFormStartDate(currentDate);
     
     const d = new Date(currentDate);
@@ -132,6 +147,9 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
     setFormPriority('Trung bình');
     setFormStatus('Đang xử lý');
     setFormResultNotes('');
+    setFormRecurrence('');
+    setFormDocNumber('');
+    setFormPublisher('');
     setIsAddingNew(true);
   };
 
@@ -146,7 +164,14 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
     setFormPriority(task.priority);
     setFormStatus(task.status);
     setFormResultNotes(task.resultNotes || '');
+    setFormRecurrence(task.recurrence || '');
+    setFormDocNumber(task.docNumber || '');
+    setFormPublisher(task.publisher || '');
     setIsAddingNew(false);
+  };
+
+  const handleRecurrenceChange = (value: string) => {
+    setFormRecurrence(value);
   };
 
   const handleSaveTask = (e: any) => {
@@ -154,16 +179,44 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
     if (!formTitle.trim()) return alert('Nhập tiêu đề công việc');
     if (!formAssigneeId) return alert('Lựa chọn cán bộ chịu trách nhiệm');
 
+    let finalStatus = formStatus;
+    let finalDeadline = formDeadline;
+    let finalResultNotes = formResultNotes;
+
+    if (formStatus === 'Hoàn thành' && formRecurrence) {
+      const baseDate = new Date(formDeadline || new Date());
+      if (formRecurrence === 'Hàng ngày') {
+        baseDate.setDate(baseDate.getDate() + 1);
+      } else if (formRecurrence === 'Hàng tuần') {
+        baseDate.setDate(baseDate.getDate() + 7);
+      } else if (formRecurrence === 'Hàng tháng') {
+        baseDate.setMonth(baseDate.getMonth() + 1);
+      } else if (formRecurrence === 'Hàng năm') {
+        baseDate.setFullYear(baseDate.getFullYear() + 1);
+      }
+
+      const yyyy = baseDate.getFullYear();
+      const mm = String(baseDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(baseDate.getDate()).padStart(2, '0');
+      finalDeadline = `${yyyy}-${mm}-${dd}`;
+      finalStatus = 'Đang xử lý'; // reset status to 'Đang xử lý' (Đang thực hiện)
+      finalResultNotes = `Đã hoàn thành lượt trước ngày ${formDeadline || 'chưa rõ'}. Tự động gia hạn chu kỳ tiếp theo (${formRecurrence}). Ghi chú cũ: ${formResultNotes || 'Không có'}`;
+      alert(`Công việc lặp lại (${formRecurrence}) đã được hoàn thành!\nHạn dứt điểm đã tự động thay đổi theo chu kỳ mới: ${finalDeadline} và trạng thái xử lý chuyển thành "Đang thực hiện".`);
+    }
+
     const body: Omit<TaskWork, 'id'> = {
       title: formTitle,
       content: formContent,
       creatorId: formCreator,
       assigneeId: formAssigneeId,
       startDate: formStartDate,
-      deadline: formDeadline,
+      deadline: finalDeadline,
       priority: formPriority,
-      status: formStatus,
-      resultNotes: formResultNotes || undefined,
+      status: finalStatus,
+      resultNotes: finalResultNotes || undefined,
+      recurrence: formRecurrence || undefined,
+      docNumber: formDocNumber || undefined,
+      publisher: formPublisher || undefined,
     };
 
     if (isAddingNew) {
@@ -183,24 +236,59 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
   };
 
   const handleQuickResolve = (id: string) => {
-    setTasks(tasks.map(t => t.id === id ? { 
-      ...t, 
-      status: 'Hoàn thành' as const,
-      resultNotes: 'Đã hoàn thành xuất sắc và báo cáo cấp trên thông qua trực tiếp.' 
-    } : t));
+    setTasks(tasks.map(t => {
+      if (t.id === id) {
+        if (t.recurrence) {
+          const baseDate = new Date(t.deadline || new Date());
+          if (t.recurrence === 'Hàng ngày') {
+            baseDate.setDate(baseDate.getDate() + 1);
+          } else if (t.recurrence === 'Hàng tuần') {
+            baseDate.setDate(baseDate.getDate() + 7);
+          } else if (t.recurrence === 'Hàng tháng') {
+            baseDate.setMonth(baseDate.getMonth() + 1);
+          } else if (t.recurrence === 'Hàng năm') {
+            baseDate.setFullYear(baseDate.getFullYear() + 1);
+          }
+          const yyyy = baseDate.getFullYear();
+          const mm = String(baseDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(baseDate.getDate()).padStart(2, '0');
+          const nextDeadline = `${yyyy}-${mm}-${dd}`;
+          
+          alert(`Công việc lặp lại (${t.recurrence}) đã được hoàn thành!\nHạn dứt điểm đã tự động thay đổi theo chu kỳ mới: ${nextDeadline} và trạng thái xử lý chuyển thành "Đang thực hiện".`);
+          
+          return {
+            ...t,
+            deadline: nextDeadline,
+            status: 'Đang xử lý' as const,
+            resultNotes: `Đã hoàn thành lượt trước ngày ${t.deadline || 'chưa rõ'}. Tự động lặp lại chu kỳ mới.`
+          };
+        } else {
+          return {
+            ...t,
+            status: 'Hoàn thành' as const,
+            resultNotes: 'Đã hoàn thành xuất sắc và báo cáo cấp trên thông qua trực tiếp.'
+          };
+        }
+      }
+      return t;
+    }));
   };
 
   const exportTasksToExcel = () => {
     const headers = [
-      "ID Nhiem vu",
-      "Tieu de cong viec",
-      "Noi dung chi tiet",
-      "Nguoi khoi tao",
-      "Can bo trach nhiem",
-      "Han dut diem",
-      "Do uu tien",
-      "Trang thai xu ly",
-      "Ghi chu ket qua"
+      "Mã nhiệm vụ",
+      "Số hiệu văn bản",
+      "Cơ quan ban hành",
+      "Trích yếu",
+      "Mô tả nội dung tiến độ chi tiết",
+      "Người khởi tạo / giao việc",
+      "Cán bộ chịu trách nhiệm",
+      "Ngày bắt đầu",
+      "Hạn dứt điểm",
+      "Độ ưu tiên",
+      "Trạng thái xử lý",
+      "Nhắc việc lặp lại",
+      "Ghi chú kết quả"
     ];
 
     const rows = filteredTasks.map(t => {
@@ -208,13 +296,17 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
       const assigneeName = matchedOfficer ? `${matchedOfficer.rank} ${matchedOfficer.fullName}` : '--';
       return [
         `"${t.id}"`,
+        `"${(t.docNumber || '').replace(/"/g, '""')}"`,
+        `"${(t.publisher || '').replace(/"/g, '""')}"`,
         `"${t.title.replace(/"/g, '""')}"`,
         `"${t.content.replace(/"/g, '""')}"`,
         `"${(t.creatorId || '').replace(/"/g, '""')}"`,
         `"${assigneeName.replace(/"/g, '""')}"`,
+        `"${t.startDate || ''}"`,
         `"${t.deadline}"`,
         `"${t.priority}"`,
         `"${t.status}"`,
+        `"${(t.recurrence || 'Không').replace(/"/g, '""')}"`,
         `"${(t.resultNotes || '').replace(/"/g, '""')}"`
       ];
     });
@@ -253,9 +345,7 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
             <CheckSquare className="w-6 h-6 text-red-650" />
             KIỂM SOÁT CÔNG VIỆC
           </h2>
-          <p className="text-slate-500 text-xs mt-1">
-            Giao phó công tác tuần tra đột xuất, giám sát nghiệm thu công trình xây dựng và chỉ đạo kíp trực tác chiến dốc túi.
-          </p>
+
           {syncMessage && (
             <div className="mt-2 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-lg inline-flex items-center gap-1.5 animate-pulse shadow-sm">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -390,15 +480,28 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
                   <div className="space-y-3">
                     <div className="flex justify-between items-start gap-1">
                       <div>
-                        <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full uppercase tracking-wider ${
-                          task.priority === 'Cao'
-                            ? 'bg-red-50 text-red-600'
-                            : task.priority === 'Trung bình'
-                              ? 'bg-amber-50 text-amber-700'
-                              : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {task.priority}
-                        </span>
+                        {task.recurrence && (
+                          <span className="px-2 py-0.5 text-[9px] font-bold rounded-full uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-100 flex items-center gap-1 inline-flex">
+                            <RefreshCw className="w-2.5 h-2.5" />
+                            Lặp lại: {task.recurrence}
+                          </span>
+                        )}
+                        {(task.docNumber || task.publisher) && (
+                          <div className="text-[10px] text-slate-500 font-bold mt-1.5 flex flex-wrap items-center gap-1.5">
+                            {task.docNumber && (
+                              <div className="flex items-center gap-1">
+                                <span>Số hiệu VB:</span>
+                                <span className="text-red-700 bg-red-50 px-1.5 py-0.5 rounded border border-red-100">{task.docNumber}</span>
+                              </div>
+                            )}
+                            {task.publisher && (
+                              <div className="flex items-center gap-1">
+                                <span>Cơ quan ban hành:</span>
+                                <span className="text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">{task.publisher}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                         <h4 className="font-extrabold text-[#1e293b] text-sm mt-1.5 leading-relaxed">
                           {task.title}
                         </h4>
@@ -418,6 +521,13 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
                     <p className="text-slate-500 text-[11.5px] line-clamp-2 leading-relaxed font-semibold">
                       {task.content}
                     </p>
+
+                    {task.resultNotes && (
+                      <div className="bg-emerald-50/60 p-2 text-[10.5px] rounded-lg border border-emerald-100/50">
+                        <span className="font-extrabold text-emerald-800">Kết quả ghi chú:</span>{' '}
+                        <span className="font-semibold text-emerald-700">{task.resultNotes}</span>
+                      </div>
+                    )}
 
                     <div className="bg-slate-50 p-2 text-[10.5px] text-slate-500 flex items-center gap-1.5 rounded-lg border border-slate-100/50">
                       <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -483,7 +593,31 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
 
               <form onSubmit={handleSaveTask} className="space-y-4 text-xs font-semibold text-slate-650">
                 <div>
-                  <label className="block mb-1">Tiêu đề công cụ vụ việc *</label>
+                  <label className="block mb-1">Số hiệu văn bản (nếu có)</label>
+                  <input
+                    id="task-form-doc-number"
+                    type="text"
+                    value={formDocNumber}
+                    onChange={(e) => setFormDocNumber(e.target.value)}
+                    className="w-full p-2 border border-slate-205 rounded border-slate-200 font-medium text-slate-800"
+                    placeholder="Ví dụ: 120/QĐ-UBND"
+                  />
+                </div>
+
+                <div>
+                  <label className="block mb-1">Cơ quan ban hành (nếu có)</label>
+                  <input
+                    id="task-form-publisher"
+                    type="text"
+                    value={formPublisher}
+                    onChange={(e) => setFormPublisher(e.target.value)}
+                    className="w-full p-2 border border-slate-205 rounded border-slate-200 font-medium text-slate-800"
+                    placeholder="Ví dụ: UBND Quận, CA Quận..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block mb-1">Trích yếu *</label>
                   <input
                     id="task-form-title"
                     type="text"
@@ -515,7 +649,7 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
                       onChange={(e) => setFormAssigneeId(e.target.value)}
                       className="w-full p-2 border border-slate-205 rounded border-slate-200 text-xs font-medium text-slate-700"
                     >
-                      {officers.map(o => (
+                      {officers.filter(o => o.position !== 'Chiến sĩ').map(o => (
                         <option key={o.id} value={o.id}>{o.rank} {o.fullName}</option>
                       ))}
                     </select>
@@ -527,7 +661,7 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
                       type="date"
                       value={formDeadline}
                       onChange={(e) => setFormDeadline(e.target.value)}
-                      className="w-full p-2 border border-slate-205 rounded border-slate-200"
+                      className="w-full p-2 border border-slate-205 rounded border-slate-200 font-medium text-slate-800"
                     />
                   </div>
                 </div>
@@ -559,6 +693,22 @@ export default function TaskWorkModule({ store }: TaskWorkProps) {
                       <option value="Quá hạn">Quá hạn</option>
                     </select>
                   </div>
+                </div>
+
+                <div>
+                  <label id="task-form-recurrence-label" className="block mb-1">Nhắc việc lặp lại</label>
+                  <select
+                    id="task-form-recurrence"
+                    value={formRecurrence}
+                    onChange={(e) => handleRecurrenceChange(e.target.value)}
+                    className="w-full p-2 border border-slate-205 rounded border-slate-200 text-xs font-medium text-slate-700 bg-white"
+                  >
+                    <option value="">-- Không lặp lại --</option>
+                    <option value="Hàng ngày">Hàng ngày</option>
+                    <option value="Hàng tuần">Hàng tuần</option>
+                    <option value="Hàng tháng">Hàng tháng</option>
+                    <option value="Hàng năm">Hàng năm</option>
+                  </select>
                 </div>
 
                 <div>

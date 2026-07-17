@@ -38,7 +38,13 @@ export default function App() {
   const store = usePCCCStore();
   const { currentUser, login, logout, tasks, isFirebaseOnline } = store;
 
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('taskId') || params.get('task_id')) {
+      return 'tasks';
+    }
+    return 'dashboard';
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // If user is not logged in, trigger safety Login Screen
@@ -58,6 +64,62 @@ export default function App() {
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
     setMobileMenuOpen(false);
+  };
+
+  const playBellSound = () => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      
+      const ctx = new AudioContextClass();
+      const now = ctx.currentTime;
+      
+      // Base frequency of the bell sound: 880 Hz (A5 - clear metallic ring)
+      const f = 880; 
+      
+      // Bell partials: [freqRatio, gainRatio, decayRatio]
+      const partials = [
+        { fRatio: 0.5, gainRatio: 0.15, decay: 1.5 },  // Hum
+        { fRatio: 1.0, gainRatio: 0.4,  decay: 1.0 },  // Fundamental
+        { fRatio: 1.2, gainRatio: 0.2,  decay: 0.6 },  // Minor third
+        { fRatio: 1.5, gainRatio: 0.15, decay: 0.5 },  // Fifth
+        { fRatio: 2.0, gainRatio: 0.25, decay: 0.4 },  // Nominal
+        { fRatio: 2.6, gainRatio: 0.1,  decay: 0.2 },  // High partial
+        { fRatio: 3.0, gainRatio: 0.08, decay: 0.15 }, // High partial
+        { fRatio: 4.0, gainRatio: 0.05, decay: 0.1 }   // Strike tone
+      ];
+      
+      const masterGain = ctx.createGain();
+      masterGain.gain.setValueAtTime(0.0, now);
+      masterGain.gain.linearRampToValueAtTime(0.5, now + 0.005);
+      masterGain.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
+      masterGain.connect(ctx.destination);
+      
+      partials.forEach(p => {
+        const osc = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(f * p.fRatio, now);
+        
+        gainNode.gain.setValueAtTime(0.0, now);
+        gainNode.gain.linearRampToValueAtTime(p.gainRatio, now + 0.005);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, now + (p.decay * 1.5));
+        
+        osc.connect(gainNode);
+        gainNode.connect(masterGain);
+        
+        osc.start(now);
+        osc.stop(now + (p.decay * 1.5) + 0.1);
+      });
+    } catch (error) {
+      console.error("Failed to play bell sound:", error);
+    }
+  };
+
+  const handleNotificationClick = () => {
+    playBellSound();
+    handleTabChange('tasks');
   };
 
   interface MenuItem {
@@ -185,6 +247,7 @@ export default function App() {
                 key={item.id}
                 id={`sidebar-btn-${item.id}`}
                 onClick={() => handleTabChange(item.id)}
+                title={item.id === 'tasks' ? 'Kiểm soát công việc – Nhắc việc trước 08 giờ sáng ngày đến hạn xử lý' : item.label}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-xs font-medium transition-all relative group cursor-pointer ${
                   isActive 
                     ? 'bg-red-600 text-white font-semibold'
@@ -293,18 +356,20 @@ export default function App() {
           <div className="flex items-center gap-4">
             {overdueTasksCount > 0 ? (
               <button
-                onClick={() => handleTabChange('tasks')}
+                id="header-notification-btn"
+                onClick={handleNotificationClick}
                 className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
-                title="Nhấp để chuyển đến mục Kiểm soát công việc"
+                title="Nhấp để chuyển đến mục Kiểm soát công việc (Thời gian nhắc việc: trước 08 giờ sáng ngày đến hạn xử lý)"
               >
                 <BellDot className="w-3.5 h-3.5 text-red-500 animate-ring-shake" />
                 <span>{overdueTasksCount} việc quá hạn</span>
               </button>
             ) : (
               <button
-                onClick={() => handleTabChange('tasks')}
+                id="header-notification-btn"
+                onClick={handleNotificationClick}
                 className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
-                title="Nhấp để chuyển đến mục Kiểm soát công việc"
+                title="Nhấp để chuyển đến mục Kiểm soát công việc (Thời gian nhắc việc: trước 08 giờ sáng ngày đến hạn xử lý)"
               >
                 <ClipboardList className="w-3.5 h-3.5 text-slate-500" />
                 <span>Kiểm soát công việc</span>

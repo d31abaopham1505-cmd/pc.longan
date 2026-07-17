@@ -68,7 +68,7 @@ export default function DashboardView({ store, setActiveTab }: DashboardViewProp
 
   const sortedSchedulesForStats = [...filteredSchedulesForStats].sort((a, b) => b.date.localeCompare(a.date));
 
-  // Calculate stats
+  // Calculate stats (bao gồm chỉ huy, cán bộ và chiến sĩ)
   const totalOfficers = officers.length;
   const totalFacilities = facilities.length;
   const totalDutySchedules = schedules.length;
@@ -125,7 +125,7 @@ export default function DashboardView({ store, setActiveTab }: DashboardViewProp
       id: 'stat-facilities',
       title: 'Cơ sở quản lý',
       value: totalFacilities,
-      subtitle: `${facilities.filter(f => f.dangerLevel === 'Nhóm I').length} cơ sở thuộc Nhóm I`,
+      subtitle: `${facilities.filter(f => f.dangerLevel === 'Nhóm I').length} Nhóm I, ${facilities.filter(f => f.dangerLevel === 'Nhóm II').length} Nhóm II`,
       icon: Building2,
       color: 'from-red-600 to-rose-600',
       bgColor: 'bg-rose-500/10',
@@ -472,7 +472,7 @@ export default function DashboardView({ store, setActiveTab }: DashboardViewProp
               </div>
             </div>
             <div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">CÁN BỘ, CHIẾN SĨ</div>
+              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">CÁN BỘ & CHIẾN SĨ</div>
               <div className="text-xl font-extrabold text-red-600 font-mono mt-0.5">
                 {sortedSchedulesForStats.reduce((sum, s) => {
                   const { cadres, soldiers } = getPersonnelDetails(s.officerIds);
@@ -490,55 +490,7 @@ export default function DashboardView({ store, setActiveTab }: DashboardViewProp
         )}
       </div>
 
-      {/* Main Charts area */}
-      <div className="grid grid-cols-1 gap-6" id="charts-grid">
-        {/* Facility levels bar chart */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4" id="danger-levels-card">
-          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-            <div className="flex items-center gap-2">
-              <ShieldAlert className="w-5 h-5 text-rose-500" />
-              <h3 className="font-extrabold text-sm text-slate-800 uppercase tracking-wider">
-                Nguy hiểm Cháy nổ Cơ sở
-              </h3>
-            </div>
-          </div>
-          
-          <div className="h-60 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={facilityDangerChartData}
-                margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} />
-                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} allowDecimals={false} />
-                <Tooltip 
-                  cursor={{ fill: '#f8fafc' }}
-                  contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#f8fafc' }}
-                />
-                <Bar dataKey="value" name="Số cơ sở" radius={[4, 4, 0, 0]}>
-                  {facilityDangerChartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* List overview */}
-          <div className="space-y-2 pt-2" id="danger-metrics-summary">
-            {facilityDangerChartData.map((lbl, idx) => (
-              <div key={idx} className="flex justify-between text-xs items-center p-2 rounded-lg hover:bg-slate-50 transition-colors">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: lbl.color }} />
-                  <span className="text-slate-600 font-semibold">{lbl.name}</span>
-                </div>
-                <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">{lbl.value} cơ sở</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      {/* Main Charts area was removed as requested */}
 
       {/* Task and Schedule Activity feeds */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" id="dashboard-activities">

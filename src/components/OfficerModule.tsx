@@ -200,7 +200,7 @@ export default function OfficerModule({ store }: OfficerModuleProps) {
     }, 600);
   };
 
-  // Filter officers
+  // Filter officers (hiển thị cả Chỉ huy đội, cán bộ, chiến sĩ)
   const filteredOfficers = officers.filter(o => {
     const matchesSearch = o.fullName.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           o.position.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -219,7 +219,7 @@ export default function OfficerModule({ store }: OfficerModuleProps) {
             BIÊN CHẾ CÁN BỘ & CHIẾN SĨ
           </h2>
           <p className="text-slate-500 text-xs mt-1">
-            Tổng biên chế: {officers.length} cán bộ | Đang công tác: {officers.filter(o => o.status === 'Đang công tác').length} | Nghỉ phép/Học tập: {officers.filter(o => o.status !== 'Đang công tác').length}
+            Tổng biên chế: {officers.length} cán bộ, chiến sĩ | Đang công tác: {officers.filter(o => o.status === 'Đang công tác').length} | Nghỉ phép/Học tập: {officers.filter(o => o.status !== 'Đang công tác').length}
           </p>
           {syncMessage && (
             <div className="mt-2 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-lg inline-flex items-center gap-1.5 animate-pulse shadow-sm">

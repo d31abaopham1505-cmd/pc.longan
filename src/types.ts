@@ -75,6 +75,9 @@ export interface Facility {
   investmentType?: string;     // Hình thức đầu tư
   ownershipType?: string;      // Hình thức sở hữu
   notes?: string;              // Ghi chú thêm (Notes)
+  industrialZone?: 'KCN, KCX' | 'CCN' | 'Ngoài KCN, KCX, CCN';
+  localForceType?: 'Cơ sở' | 'Chuyên ngành' | 'Phân công';
+  localForceCount?: number;
 }
 
 export interface FireInspection {
@@ -100,6 +103,9 @@ export interface FireInspection {
   facilityStatus?: 'Hoạt động' | 'Ngừng hoạt động' | 'Tạm ngừng hoạt động' | 'Đang hoạt động' | 'Tạm dừng hoạt động' | 'Đã đình chỉ' | 'Đang cải tạo';
   notes?: string;         // Ghi chú thêm
   legalBasis?: string;    // Căn cứ pháp lý / Căn cứ theo quy định
+  industrialZone?: 'KCN, KCX' | 'CCN' | 'Ngoài KCN, KCX, CCN';
+  localForceType?: 'Cơ sở' | 'Chuyên ngành' | 'Phân công';
+  localForceCount?: number;
 }
 
 export interface FireProtectionPlan {
@@ -175,4 +181,7 @@ export interface TaskWork {
   status: 'Chưa thực hiện' | 'Đang xử lý' | 'Hoàn thành' | 'Quá hạn';
   attachments?: string[];
   resultNotes?: string; // Ghi chú kết quả
+  recurrence?: string;  // Nhắc việc lặp lại (hàng ngày, hàng tuần, hàng tháng, hàng năm)
+  docNumber?: string;   // Số hiệu văn bản liên quan (nếu có)
+  publisher?: string;   // Cơ quan ban hành (nếu có)
 }
